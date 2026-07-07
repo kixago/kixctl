@@ -25,6 +25,7 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
 
     public array $detail = [];
     public array $snapshots = [];
+    public array $config = [];
 
     #[On('open-instance-detail')]
     public function openFor(string $cluster, string $name): void
@@ -49,6 +50,7 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         $incus = app(IncusClient::class);
         $this->detail = $incus->instance($target, $this->name);
         $this->snapshots = $incus->snapshots($target, $this->name);
+        $this->config = $incus->instanceConfig($target, $this->name);
     }
 
     protected function target()

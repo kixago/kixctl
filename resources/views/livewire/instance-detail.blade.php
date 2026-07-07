@@ -37,6 +37,52 @@
                 @endforeach
             </div>
 
+            {{-- Storage: the rollback boundary made visible --}}
+            <div style="margin-bottom:1rem;">
+                <div style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;">Storage</div>
+                @foreach (data_get($config, 'disks', []) as $disk)
+                    <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid #27272a;border-radius:.5rem;padding:.5rem .75rem;margin-bottom:.4rem;font-size:.82rem;">
+                        <div style="display:flex;align-items:center;gap:.5rem;">
+                            <span style="font-family:monospace;font-weight:600;">{{ $disk['name'] }}</span>
+                            <span style="opacity:.5;font-family:monospace;">{{ $disk['path'] }}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:.5rem;">
+                            @if ($disk['pool'])
+                                <span style="opacity:.55;font-family:monospace;">{{ $disk['pool'] }}{{ $disk['size'] ? ' · '.$disk['size'] : '' }}</span>
+                            @endif
+                            @if ($disk['is_root'])
+                                <span title="Reverts on snapshot restore" style="font-size:.68rem;padding:.1rem .45rem;border-radius:.3rem;background:rgba(239,68,68,.12);color:#ef4444;">in rollback</span>
+                            @else
+                                <span title="Survives snapshot restore" style="font-size:.68rem;padding:.1rem .45rem;border-radius:.3rem;background:rgba(34,197,94,.12);color:#22c55e;">persists</span>
+                            @endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+            {{-- Network --}}
+            <div style="margin-bottom:1rem;">
+                <div style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;">Network</div>
+                @foreach (data_get($config, 'nics', []) as $nic)
+                    <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid #27272a;border-radius:.5rem;padding:.5rem .75rem;margin-bottom:.4rem;font-size:.82rem;">
+                        <span style="font-family:monospace;font-weight:600;">{{ $nic['name'] }}</span>
+                        <span style="opacity:.6;font-family:monospace;">
+                            {{ $nic['nictype'] }}@if($nic['parent']) → {{ $nic['parent'] }}@endif @if($nic['vlan']) · vlan {{ $nic['vlan'] }}@endif
+                        </span>
+                    </div>
+                @endforeach
+            </div>
+
+            {{-- Profiles --}}
+            <div style="margin-bottom:1.25rem;">
+                <div style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;">Profiles</div>
+                <div style="display:flex;flex-wrap:wrap;gap:.4rem;">
+                    @foreach (data_get($config, 'profiles', []) as $profile)
+                        <span style="font-size:.75rem;padding:.15rem .5rem;border-radius:.35rem;background:rgba(99,102,241,.12);color:#818cf8;font-family:monospace;">{{ $profile }}</span>
+                    @endforeach
+                </div>
+            </div>
+
             {{-- Snapshots --}}
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;">
                 <div style="font-weight:600;">Snapshots ({{ count($snapshots) }})</div>

@@ -45,7 +45,43 @@ class IncusClient
         $encoded = rawurlencode($name);
         return $this->get($cluster, "/1.0/instances/{$encoded}", ['recursion' => 1]);
     }
+    /** Devices + profiles for an instance, with profile inheritance merged in. */
+    public function instanceConfig(Cluster $cluster, string $name): array
+    {
+        $encoded = rawurlencode($name);
+        $data = $this->get($cluster, "/1.0/instances/{$encoded}", ['recursion' => 1]);
 
+        $devices = $data['expanded_devices'] ?? $data['devices'] ?? [];
+
+        $disks = [];
+        $nics  = [];
+        foreach ($devices as $devName => $dev) {
+            $type = $dev['type'] ?? '';
+            if ($type === 'disk') {
+                $disks[] = [
+                    'name'    => $devName,
+                    'path'    => $dev['path'] ?? '',
+                    'pool'    => $dev['pool'] ?? '',
+                    'source'  => $dev['source'] ?? '',
+                    'size'    => $dev['size'] ?? '',
+                    'is_root' => ($dev['path'] ?? '') === '/',
+                ];
+            } elseif ($type === 'nic') {
+                $nics[] = [
+                    'name'    => $devName,
+                    'nictype' => $dev['nictype'] ?? ($dev['network'] ?? ''),
+                    'parent'  => $dev['parent'] ?? '',
+                    'vlan'    => $dev['vlan'] ?? '',
+                ];
+            }
+        }
+
+        return [
+            'profiles' => $data['profiles'] ?? [],
+            'disks'    => $disks,
+            'nics'     => $nics,
+        ];
+    }
     /** List an instance's snapshots (names + creation times). */
     public function snapshots(Cluster $cluster, string $name): array
     {
