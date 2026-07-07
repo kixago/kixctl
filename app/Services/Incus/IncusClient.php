@@ -21,7 +21,41 @@ class IncusClient
             ])
             ->all();
     }
+    /** Live resource state for one node: memory, load, storage pools. */
+    public function memberState(Cluster $cluster, string $name): array
+    {
+        $encoded = rawurlencode($name);
+        $data = $this->get($cluster, "/1.0/cluster/members/{$encoded}/state");
 
+        $sys = $data['sysinfo'] ?? [];
+
+        $totalRam = $sys['total_ram'] ?? 0;
+        $freeRam  = $sys['free_ram'] ?? 0;
+        $buffered = $sys['buffered_ram'] ?? 0;
+        // Real used = total - free - buffers/cache (cache isn't true pressure).
+        $usedRam  = max(0, $totalRam - $freeRam - $buffered);
+
+        $pool = collect($data['storage_pools'] ?? [])
+            ->map(fn($p, $poolName) => [
+                'name'  => $poolName,
+                'total' => $p['space']['total'] ?? 0,
+                'used'  => $p['space']['used'] ?? 0,
+            ])
+            ->sortByDesc('total')
+            ->first();
+
+        return [
+            'ram_total' => $totalRam,
+            'ram_used'  => $usedRam,
+            'ram_pct'   => $totalRam > 0 ? round($usedRam / $totalRam * 100, 1) : 0,
+            'load'      => $sys['load_averages'] ?? [0, 0, 0],
+            'processes' => $sys['processes'] ?? 0,
+            'pool_name'  => $pool['name'] ?? null,
+            'pool_total' => $pool['total'] ?? 0,
+            'pool_used'  => $pool['used'] ?? 0,
+            'pool_pct'   => ($pool['total'] ?? 0) > 0 ? round($pool['used'] / $pool['total'] * 100, 1) : 0,
+        ];
+    }
     public function instances(Cluster $cluster): array
     {
         return collect($this->get($cluster, '/1.0/instances', ['recursion' => 2]))
@@ -167,17 +201,37 @@ class IncusClient
 
     protected function primaryIpv4(?array $state): ?string
     {
+        if (! $state) {
+            return null;
+        }
+
+        // Interface name prefixes that are virtual / container-internal and
+        // never the address you'd actually reach an instance on.
+        $skip = ['lo', 'docker', 'hassio', 'veth', 'br-', 'virbr',
+            'cni', 'flannel', 'wg', 'tailscale', 'zt', 'kube', 'cali'];
+
+        $candidates = [];
         foreach ($state['network'] ?? [] as $iface => $data) {
-            if ($iface === 'lo') {
-                continue;
+            foreach ($skip as $prefix) {
+                if (str_starts_with($iface, $prefix)) {
+                    continue 2; // skip this interface entirely
+                }
             }
             foreach ($data['addresses'] ?? [] as $addr) {
                 if (($addr['family'] ?? '') === 'inet' && ($addr['scope'] ?? '') === 'global') {
-                    return $addr['address'];
+                    $candidates[] = $addr['address'];
                 }
             }
         }
-        return null;
+
+        // Prefer a LAN address over Docker's default 172.x range as a backstop.
+        foreach ($candidates as $ip) {
+            if (! str_starts_with($ip, '172.')) {
+                return $ip;
+            }
+        }
+
+        return $candidates[0] ?? null;
     }
 
     protected function get(Cluster $cluster, string $path, array $query = []): array
