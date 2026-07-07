@@ -1,4 +1,6 @@
 <x-filament-panels::page>
+    @livewire('instance-detail')
+
     <div x-data="clusterView(@js($clusters), @js($members), @js($instances))">
 
         {{-- Cluster chips (level 1) --}}
@@ -80,6 +82,7 @@
                             <td style="padding:.7rem 1rem;font-family:monospace;opacity:.8;" x-text="i.ipv4 || '—'"></td>
                             <td style="padding:.7rem 1rem;">
                                 <div x-show="pending !== i.cluster + '/' + i.name" style="display:flex;gap:.4rem;">
+                                    <button @click="$dispatch('open-instance-detail', { cluster: i.cluster, name: i.name })" :style="btn('#6366f1')">Details</button>
                                     <button x-show="i.status !== 'Running'" @click="act('start', i)" :style="btn('#22c55e')">Start</button>
                                     <button x-show="i.status === 'Running'" @click="act('restart', i)" :style="btn('#a1a1aa')">Restart</button>
                                     <button x-show="i.status === 'Running'" @click="act('stop', i)" :style="btn('#ef4444')">Stop</button>
@@ -107,6 +110,13 @@
                     { field: 'node', label: 'Node' }, { field: 'type', label: 'Type' },
                     { field: 'status', label: 'Status' }, { field: 'ipv4', label: 'IPv4' },
                 ],
+
+                init() {
+                    window.addEventListener('instance-changed', async () => {
+                        const fresh = await this.$wire.get('instances');
+                        if (Array.isArray(fresh)) this.instances = fresh;
+                    });
+                },
 
                 clusterActive(k) { return this.selectedClusters.length === 0 || this.selectedClusters.includes(k); },
                 nodeActive(n) { return this.selectedNodes.length === 0 || this.selectedNodes.includes(n); },

@@ -39,32 +39,85 @@ class IncusClient
             ->all();
     }
 
-    /**
-     * Start / stop / restart an instance. This is an async Incus operation:
-     * the PUT returns an operation URL, and we block on /wait until it finishes.
-     */
+    /** Full detail for one instance (config, state, limits). */
+    public function instance(Cluster $cluster, string $name): array
+    {
+        $encoded = rawurlencode($name);
+        return $this->get($cluster, "/1.0/instances/{$encoded}", ['recursion' => 1]);
+    }
+
+    /** List an instance's snapshots (names + creation times). */
+    public function snapshots(Cluster $cluster, string $name): array
+    {
+        $encoded = rawurlencode($name);
+        return collect($this->get($cluster, "/1.0/instances/{$encoded}/snapshots", ['recursion' => 1]))
+            ->map(fn($s) => [
+                'name'       => $s['name'],
+                'created_at' => $s['created_at'] ?? null,
+                'stateful'   => $s['stateful'] ?? false,
+            ])
+            ->sortByDesc('created_at')
+            ->values()
+            ->all();
+    }
+
+    /** Start / stop / restart an instance. Async operation. */
     public function setInstanceState(Cluster $cluster, string $name, string $action, int $timeout = 30): void
     {
-        // Whitelist the verb — this is client-influenced input reaching the cluster API.
         if (! in_array($action, ['start', 'stop', 'restart'], true)) {
             throw new \InvalidArgumentException("Unsupported action: {$action}");
         }
 
-        $encoded = rawurlencode($name); // never let a raw name shape the URL path
-
+        $encoded = rawurlencode($name);
         $response = $this->request($cluster)->put("/1.0/instances/{$encoded}/state", [
             'action'  => $action,
             'timeout' => $timeout,
-            'force'   => false, // graceful; a "force stop" modifier can come later
+            'force'   => false,
         ]);
         $response->throw();
+        $this->waitForOperation($cluster, $response->json('operation'), $timeout);
+    }
 
-        $operation = $response->json('operation'); // e.g. "/1.0/operations/<uuid>"
+    /** Create a snapshot. Async. */
+    public function createSnapshot(Cluster $cluster, string $instance, string $snapshot, int $timeout = 60): void
+    {
+        $encoded = rawurlencode($instance);
+        $response = $this->request($cluster)->post("/1.0/instances/{$encoded}/snapshots", [
+            'name'     => $snapshot,
+            'stateful' => false,
+        ]);
+        $response->throw();
+        $this->waitForOperation($cluster, $response->json('operation'), $timeout);
+    }
+
+    /** Restore an instance to a snapshot. Async, destructive. */
+    public function restoreSnapshot(Cluster $cluster, string $instance, string $snapshot, int $timeout = 60): void
+    {
+        $encoded = rawurlencode($instance);
+        $response = $this->request($cluster)->put("/1.0/instances/{$encoded}", [
+            'restore' => $snapshot,
+        ]);
+        $response->throw();
+        $this->waitForOperation($cluster, $response->json('operation'), $timeout);
+    }
+
+    /** Delete a snapshot. Async. */
+    public function deleteSnapshot(Cluster $cluster, string $instance, string $snapshot, int $timeout = 30): void
+    {
+        $i = rawurlencode($instance);
+        $s = rawurlencode($snapshot);
+        $response = $this->request($cluster)->delete("/1.0/instances/{$i}/snapshots/{$s}");
+        $response->throw();
+        $this->waitForOperation($cluster, $response->json('operation'), $timeout);
+    }
+
+    /** Block until an async Incus operation finishes; throw on failure. */
+    protected function waitForOperation(Cluster $cluster, ?string $operation, int $timeout): void
+    {
         if (! $operation) {
-            return; // synchronous response, nothing to wait on
+            return;
         }
 
-        // Block until the operation completes (or the timeout elapses).
         $wait = $this->request($cluster)
             ->timeout($timeout + 5)
             ->get(rtrim($operation, '/') . '/wait', ['timeout' => $timeout]);
