@@ -4,6 +4,7 @@ return [
     // 'socket' = local admin socket (dev, on a cluster member — this is you now).
     // 'https'  = remote cluster over a least-privilege client cert (real installs).
     'driver' => env('INCUS_DRIVER', 'socket'),
+    'label' => env('INCUS_LABEL', 'My Cluster'),
 
     'socket' => env('INCUS_SOCKET', '/var/lib/incus/unix.socket'),
 
