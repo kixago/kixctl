@@ -33,12 +33,34 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
 
     public array $config = [];
 
+    // --- Logs (P2-A) ---
+    public array $logFiles = [];
+
+    public string $selectedLogFile = '';
+
+    public string $logContent = '';
+
+    public string $consoleContent = '';
+
+    public bool $consoleLoaded = false;
+
+    public string $logView = 'files'; // 'files' | 'console'
+
     #[On('open-instance-detail')]
     public function openFor(string $cluster, string $name): void
     {
         $this->cluster = $cluster;
         $this->name = $name;
         $this->open = true;
+
+        // Reset log state for the newly opened instance.
+        $this->logFiles = [];
+        $this->selectedLogFile = '';
+        $this->logContent = '';
+        $this->consoleContent = '';
+        $this->consoleLoaded = false;
+        $this->logView = 'files';
+
         $this->refreshData();
     }
 
@@ -57,6 +79,17 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         $this->detail = $incus->instance($target, $this->name);
         $this->snapshots = $incus->snapshots($target, $this->name);
         $this->config = $incus->instanceConfig($target, $this->name);
+
+        // Log file list is cheap; load it and auto-open the first file so the
+        // Logs → Files pane isn't empty on open. File contents are capped in the client.
+        try {
+            $this->logFiles = $incus->instanceLogs($target, $this->name);
+        } catch (\Throwable $_e) {
+            $this->logFiles = [];
+        }
+        if ($this->selectedLogFile === '' && ! empty($this->logFiles)) {
+            $this->viewLogFile($this->logFiles[0]['name']);
+        }
     }
 
     protected function target()
@@ -64,16 +97,78 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         return app(ClusterRegistry::class)->find($this->cluster);
     }
 
-    /**
-     * Whether the current user holds a given permission.
-     * super_admin bypasses via Shield's gate interception.
-     */
-    protected function userCan(string $permission): bool
-    {
-        /** @var User|null $user */
-        $user = Auth::user();
+    // --- Logs: tab switching + content loading (read-only; no permission gate) ---
 
-        return $user?->can($permission) ?? false;
+    /** Switch to the Files tab. */
+    public function showFiles(): void
+    {
+        $this->logView = 'files';
+    }
+
+    /** Load and show one log file's contents. */
+    public function viewLogFile(string $file): void
+    {
+        $this->logView = 'files';
+        $this->selectedLogFile = $file;
+        try {
+            $this->logContent = app(IncusClient::class)
+                ->instanceLogFile($this->target(), $this->name, $file);
+        } catch (\Throwable $e) {
+            $this->logContent = '';
+            Notification::make()->title('Could not load log')->body($e->getMessage())->danger()->send();
+        }
+    }
+
+    /** Switch to the Console tab, lazily loading the cleaned buffer once. */
+    public function showConsole(): void
+    {
+        $this->logView = 'console';
+        if ($this->consoleLoaded) {
+            return;
+        }
+        try {
+            $raw = app(IncusClient::class)->consoleLog($this->target(), $this->name);
+            $this->consoleContent = $this->cleanConsole($raw);
+        } catch (\Throwable $_e) {
+            $this->consoleContent = '';
+        }
+        $this->consoleLoaded = true;
+    }
+
+    /** Re-pull whichever log surface is currently in view. */
+    public function refreshLogs(): void
+    {
+        if ($this->logView === 'console') {
+            $this->consoleLoaded = false;
+            $this->showConsole();
+        } elseif ($this->selectedLogFile !== '') {
+            $this->viewLogFile($this->selectedLogFile);
+        }
+    }
+
+    /**
+     * Strip ANSI/VT escape sequences and control noise from a console buffer,
+     * leaving readable text. VGA boot menus (cursor-positioned) come out sparse
+     * — that's inherent — but serial/kernel output comes out clean.
+     */
+    protected function cleanConsole(string $raw): string
+    {
+        // Strip escape sequences: OSC (…BEL/ST), CSI (…final byte),
+        // charset-selects, and misc single-char ESC codes.
+        $s = preg_replace('/\e\][^\x07\e]*(?:\x07|\e\\\\)/', '', $raw);
+        $s = preg_replace('/\e[\[\?][0-9;]*[ -\/]*[@-~]/', '', $s);
+        $s = preg_replace('/\e[()][0-9A-Za-z]/', '', $s);
+        $s = preg_replace('/\e[=>78HMc]/', '', $s);
+
+        // Normalize newlines, then drop remaining control chars (keep tab + newline).
+        $s = str_replace(["\r\n", "\r"], "\n", $s);
+        $s = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $s);
+
+        // Tidy: trailing spaces and long runs of blank lines.
+        $s = preg_replace('/[ \t]+\n/', "\n", $s);
+        $s = preg_replace('/\n{3,}/', "\n\n", $s);
+
+        return trim($s);
     }
 
     /** Create snapshot — soft confirm (non-destructive). */
@@ -223,6 +318,18 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         } catch (\Throwable $e) {
             Notification::make()->title('Delete failed')->body($e->getMessage())->danger()->send();
         }
+    }
+
+    /**
+     * Whether the current user holds a given permission.
+     * super_admin bypasses via Shield's gate interception.
+     */
+    protected function userCan(string $permission): bool
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        return $user?->can($permission) ?? false;
     }
 
     public function render()

@@ -10,17 +10,18 @@ class IncusClient
     public function members(Cluster $cluster): array
     {
         return collect($this->get($cluster, '/1.0/cluster/members', ['recursion' => 1]))
-            ->map(fn($m) => [
-                'cluster'       => $cluster->key,
+            ->map(fn ($m) => [
+                'cluster' => $cluster->key,
                 'cluster_label' => $cluster->label,
-                'name'    => $m['server_name'],
-                'status'  => $m['status'],
+                'name' => $m['server_name'],
+                'status' => $m['status'],
                 'message' => $m['message'] ?? '',
-                'url'     => $m['url'] ?? '',
-                'roles'   => $m['roles'] ?? [],
+                'url' => $m['url'] ?? '',
+                'roles' => $m['roles'] ?? [],
             ])
             ->all();
     }
+
     /** Live resource state for one node: memory, load, storage pools. */
     public function memberState(Cluster $cluster, string $name): array
     {
@@ -30,48 +31,50 @@ class IncusClient
         $sys = $data['sysinfo'] ?? [];
 
         $totalRam = $sys['total_ram'] ?? 0;
-        $freeRam  = $sys['free_ram'] ?? 0;
+        $freeRam = $sys['free_ram'] ?? 0;
         $buffered = $sys['buffered_ram'] ?? 0;
         // Real used = total - free - buffers/cache (cache isn't true pressure).
-        $usedRam  = max(0, $totalRam - $freeRam - $buffered);
+        $usedRam = max(0, $totalRam - $freeRam - $buffered);
 
         $pool = collect($data['storage_pools'] ?? [])
-            ->map(fn($p, $poolName) => [
-                'name'  => $poolName,
+            ->map(fn ($p, $poolName) => [
+                'name' => $poolName,
                 'total' => $p['space']['total'] ?? 0,
-                'used'  => $p['space']['used'] ?? 0,
+                'used' => $p['space']['used'] ?? 0,
             ])
             ->sortByDesc('total')
             ->first();
 
         return [
             'ram_total' => $totalRam,
-            'ram_used'  => $usedRam,
-            'ram_pct'   => $totalRam > 0 ? round($usedRam / $totalRam * 100, 1) : 0,
-            'load'      => $sys['load_averages'] ?? [0, 0, 0],
+            'ram_used' => $usedRam,
+            'ram_pct' => $totalRam > 0 ? round($usedRam / $totalRam * 100, 1) : 0,
+            'load' => $sys['load_averages'] ?? [0, 0, 0],
             'processes' => $sys['processes'] ?? 0,
-            'pool_name'  => $pool['name'] ?? null,
+            'pool_name' => $pool['name'] ?? null,
             'pool_total' => $pool['total'] ?? 0,
-            'pool_used'  => $pool['used'] ?? 0,
-            'pool_pct'   => ($pool['total'] ?? 0) > 0 ? round($pool['used'] / $pool['total'] * 100, 1) : 0,
+            'pool_used' => $pool['used'] ?? 0,
+            'pool_pct' => ($pool['total'] ?? 0) > 0 ? round($pool['used'] / $pool['total'] * 100, 1) : 0,
         ];
     }
+
     public function instances(Cluster $cluster): array
     {
         return collect($this->get($cluster, '/1.0/instances', ['recursion' => 2]))
-            ->map(fn($i) => [
-                'cluster'       => $cluster->key,
+            ->map(fn ($i) => [
+                'cluster' => $cluster->key,
                 'cluster_label' => $cluster->label,
-                'name'   => $i['name'],
-                'type'   => $i['type'],
+                'name' => $i['name'],
+                'type' => $i['type'],
                 'status' => $i['status'],
-                'node'   => $i['location'] ?? '—',
-                'ipv4'   => $this->primaryIpv4($i['state'] ?? null),
+                'node' => $i['location'] ?? '—',
+                'ipv4' => $this->primaryIpv4($i['state'] ?? null),
             ])
             ->sortBy('node')
             ->values()
             ->all();
     }
+
     /** List profile names available on the cluster (for the create form). */
     public function profiles(Cluster $cluster): array
     {
@@ -90,7 +93,7 @@ class IncusClient
     {
         $path = '/1.0/instances';
         if ($target) {
-            $path .= '?target=' . rawurlencode($target);
+            $path .= '?target='.rawurlencode($target);
         }
 
         $response = $this->request($cluster)->timeout($timeout + 5)->post($path, $payload);
@@ -102,8 +105,10 @@ class IncusClient
     public function instance(Cluster $cluster, string $name): array
     {
         $encoded = rawurlencode($name);
+
         return $this->get($cluster, "/1.0/instances/{$encoded}", ['recursion' => 1]);
     }
+
     /** Devices + profiles for an instance, with profile inheritance merged in. */
     public function instanceConfig(Cluster $cluster, string $name): array
     {
@@ -113,47 +118,90 @@ class IncusClient
         $devices = $data['expanded_devices'] ?? $data['devices'] ?? [];
 
         $disks = [];
-        $nics  = [];
+        $nics = [];
         foreach ($devices as $devName => $dev) {
             $type = $dev['type'] ?? '';
             if ($type === 'disk') {
                 $disks[] = [
-                    'name'    => $devName,
-                    'path'    => $dev['path'] ?? '',
-                    'pool'    => $dev['pool'] ?? '',
-                    'source'  => $dev['source'] ?? '',
-                    'size'    => $dev['size'] ?? '',
+                    'name' => $devName,
+                    'path' => $dev['path'] ?? '',
+                    'pool' => $dev['pool'] ?? '',
+                    'source' => $dev['source'] ?? '',
+                    'size' => $dev['size'] ?? '',
                     'is_root' => ($dev['path'] ?? '') === '/',
                 ];
             } elseif ($type === 'nic') {
                 $nics[] = [
-                    'name'    => $devName,
+                    'name' => $devName,
                     'nictype' => $dev['nictype'] ?? ($dev['network'] ?? ''),
-                    'parent'  => $dev['parent'] ?? '',
-                    'vlan'    => $dev['vlan'] ?? '',
+                    'parent' => $dev['parent'] ?? '',
+                    'vlan' => $dev['vlan'] ?? '',
                 ];
             }
         }
 
         return [
             'profiles' => $data['profiles'] ?? [],
-            'disks'    => $disks,
-            'nics'     => $nics,
+            'disks' => $disks,
+            'nics' => $nics,
         ];
     }
+
     /** List an instance's snapshots (names + creation times). */
     public function snapshots(Cluster $cluster, string $name): array
     {
         $encoded = rawurlencode($name);
+
         return collect($this->get($cluster, "/1.0/instances/{$encoded}/snapshots", ['recursion' => 1]))
-            ->map(fn($s) => [
-                'name'       => $s['name'],
+            ->map(fn ($s) => [
+                'name' => $s['name'],
                 'created_at' => $s['created_at'] ?? null,
-                'stateful'   => $s['stateful'] ?? false,
+                'stateful' => $s['stateful'] ?? false,
             ])
             ->sortByDesc('created_at')
             ->values()
             ->all();
+    }
+
+    /** List available log files for an instance (names + API paths). */
+    public function instanceLogs(Cluster $cluster, string $name): array
+    {
+        $encoded = rawurlencode($name);
+
+        return collect($this->get($cluster, "/1.0/instances/{$encoded}/logs"))
+            ->map(fn ($url) => [
+                'name' => basename($url),
+                'path' => $url,
+            ])
+            ->sortBy('name')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Raw contents of one instance log file. Caps to the last $tailBytes so a
+     * huge log never floods the browser; the tail is the useful, recent end.
+     */
+    public function instanceLogFile(Cluster $cluster, string $name, string $file, int $tailBytes = 200000): string
+    {
+        $i = rawurlencode($name);
+        $f = rawurlencode($file);
+        $body = $this->getRaw($cluster, "/1.0/instances/{$i}/logs/{$f}");
+
+        if (strlen($body) > $tailBytes) {
+            return '… truncated to last '.number_format($tailBytes)." bytes …\n\n"
+                .substr($body, -$tailBytes);
+        }
+
+        return $body;
+    }
+
+    /** Console ring-buffer for an instance (raw text). May be empty; may 404 if unavailable. */
+    public function consoleLog(Cluster $cluster, string $name): string
+    {
+        $encoded = rawurlencode($name);
+
+        return $this->getRaw($cluster, "/1.0/instances/{$encoded}/console");
     }
 
     /** Start / stop / restart an instance. Async operation. */
@@ -165,9 +213,9 @@ class IncusClient
 
         $encoded = rawurlencode($name);
         $response = $this->request($cluster)->put("/1.0/instances/{$encoded}/state", [
-            'action'  => $action,
+            'action' => $action,
             'timeout' => $timeout,
-            'force'   => false,
+            'force' => false,
         ]);
         $response->throw();
         $this->waitForOperation($cluster, $response->json('operation'), $timeout);
@@ -178,7 +226,7 @@ class IncusClient
     {
         $encoded = rawurlencode($instance);
         $response = $this->request($cluster)->post("/1.0/instances/{$encoded}/snapshots", [
-            'name'     => $snapshot,
+            'name' => $snapshot,
             'stateful' => false,
         ]);
         $response->throw();
@@ -205,6 +253,7 @@ class IncusClient
         $response->throw();
         $this->waitForOperation($cluster, $response->json('operation'), $timeout);
     }
+
     /** Delete an instance. Async, destructive — stops it first if running. */
     public function deleteInstance(Cluster $cluster, string $name, int $timeout = 60): void
     {
@@ -213,7 +262,7 @@ class IncusClient
         // Incus refuses to delete a running instance; stop it first (best-effort).
         try {
             $this->setInstanceState($cluster, $name, 'stop', 30);
-        } catch (\Throwable $e) {
+        } catch (\Throwable $_e) {
             // already stopped, or stop failed — let the delete surface the real error
         }
 
@@ -231,7 +280,7 @@ class IncusClient
 
         $wait = $this->request($cluster)
             ->timeout($timeout + 5)
-            ->get(rtrim($operation, '/') . '/wait', ['timeout' => $timeout]);
+            ->get(rtrim($operation, '/').'/wait', ['timeout' => $timeout]);
         $wait->throw();
 
         $result = $wait->json('metadata', []);
@@ -279,7 +328,18 @@ class IncusClient
     {
         $response = $this->request($cluster)->get($path, $query);
         $response->throw();
+
         return $response->json('metadata', []);
+    }
+
+    /** Like get(), but returns the raw response body — for endpoints that
+     *  serve a file (log contents, console buffer) rather than a JSON envelope. */
+    protected function getRaw(Cluster $cluster, string $path, array $query = []): string
+    {
+        $response = $this->request($cluster)->get($path, $query);
+        $response->throw();
+
+        return $response->body();
     }
 
     protected function request(Cluster $cluster): PendingRequest
@@ -295,9 +355,9 @@ class IncusClient
 
         return Http::baseUrl($c['url'])
             ->withOptions([
-                'cert'    => $c['client_cert'],
+                'cert' => $c['client_cert'],
                 'ssl_key' => $c['client_key'],
-                'verify'  => $c['verify'] ?? false,
+                'verify' => $c['verify'] ?? false,
             ])
             ->acceptJson()
             ->timeout(10);
