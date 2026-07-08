@@ -72,6 +72,31 @@ class IncusClient
             ->values()
             ->all();
     }
+    /** List profile names available on the cluster (for the create form). */
+    public function profiles(Cluster $cluster): array
+    {
+        return collect($this->get($cluster, '/1.0/profiles', ['recursion' => 1]))
+            ->pluck('name')
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Create a new instance. Async — image pulls can be slow on first use.
+     * $payload is the full Incus create body; $target is the node name.
+     */
+    public function createInstance(Cluster $cluster, array $payload, ?string $target = null, int $timeout = 300): void
+    {
+        $path = '/1.0/instances';
+        if ($target) {
+            $path .= '?target=' . rawurlencode($target);
+        }
+
+        $response = $this->request($cluster)->timeout($timeout + 5)->post($path, $payload);
+        $response->throw();
+        $this->waitForOperation($cluster, $response->json('operation'), $timeout);
+    }
 
     /** Full detail for one instance (config, state, limits). */
     public function instance(Cluster $cluster, string $name): array
@@ -177,6 +202,22 @@ class IncusClient
         $i = rawurlencode($instance);
         $s = rawurlencode($snapshot);
         $response = $this->request($cluster)->delete("/1.0/instances/{$i}/snapshots/{$s}");
+        $response->throw();
+        $this->waitForOperation($cluster, $response->json('operation'), $timeout);
+    }
+    /** Delete an instance. Async, destructive — stops it first if running. */
+    public function deleteInstance(Cluster $cluster, string $name, int $timeout = 60): void
+    {
+        $encoded = rawurlencode($name);
+
+        // Incus refuses to delete a running instance; stop it first (best-effort).
+        try {
+            $this->setInstanceState($cluster, $name, 'stop', 30);
+        } catch (\Throwable $e) {
+            // already stopped, or stop failed — let the delete surface the real error
+        }
+
+        $response = $this->request($cluster)->delete("/1.0/instances/{$encoded}");
         $response->throw();
         $this->waitForOperation($cluster, $response->json('operation'), $timeout);
     }

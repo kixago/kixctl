@@ -115,6 +115,37 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
                 }
             });
     }
+    /** Delete the whole instance — STRONG guard: type the instance name. Destructive. */
+    public function deleteInstanceAction(): Action
+    {
+        return Action::make('deleteInstance')
+            ->label('Delete instance')
+            ->icon('heroicon-o-trash')
+            ->color('danger')
+            ->requiresConfirmation()
+            ->modalHeading('Delete instance')
+            ->modalDescription(fn() => "This permanently deletes “{$this->name}” and its root filesystem. Attached volumes that persist are not removed. This cannot be undone.")
+            ->schema([
+                TextInput::make('confirm')
+                    ->label("Type the instance name (“{$this->name}”) to confirm")
+                    ->required()
+                    ->rule(fn() => function ($attr, $value, $fail) {
+                        if ($value !== $this->name) {
+                            $fail('Name does not match.');
+                        }
+                    }),
+            ])
+            ->action(function () {
+                try {
+                    app(IncusClient::class)->deleteInstance($this->target(), $this->name);
+                    Notification::make()->title('Instance deleted')->body($this->name)->success()->send();
+                    $this->open = false;               // close the panel
+                    $this->dispatch('instance-changed'); // table re-pulls; the row disappears
+                } catch (\Throwable $e) {
+                    Notification::make()->title('Delete failed')->body($e->getMessage())->danger()->send();
+                }
+            });
+    }
 
     public string $deleteTarget = '';
 
