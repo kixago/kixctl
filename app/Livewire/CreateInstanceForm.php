@@ -2,39 +2,60 @@
 
 namespace App\Livewire;
 
+use App\Models\User;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\ImageCatalog;
 use App\Services\Incus\IncusClient;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
 class CreateInstanceForm extends Component
 {
     public bool $open = false;
+
     public bool $showAdvanced = false;
 
     public string $clusterKey = '';
+
     public array $nodeOptions = [];
+
     public array $profileOptions = [];
 
     public string $name = '';
+
     public string $type = 'container';
+
     public string $imageScope = 'remote';
+
     public string $arch = 'amd64';
+
     public string $imageAlias = '';       // chosen from live catalog
+
     public string $imageCustom = '';       // used when "Custom…" selected
+
     public bool $useCustomImage = false;
 
     public array $catalog = [];            // full parsed list
+
     public array $archOptions = [];
+
     public string $target = '';
+
     public array $profiles = ['power'];
+
     public string $limitsCpu = '';
+
     public string $limitsMemory = '';
+
     public bool $bootAutostart = true;
+
     public bool $securityNesting = false;
+
     public string $description = '';
+
     public string $rawConfig = '';
+
     public bool $startNow = true;
 
     public function mount(): void
@@ -49,14 +70,14 @@ class CreateInstanceForm extends Component
                 foreach ($incus->members($cluster) as $m) {
                     $this->nodeOptions[$m['name']] = $m['name'];
                 }
-            } catch (\Throwable $e) {
+            } catch (\Throwable $_e) {
                 // cluster unreachable
             }
             try {
                 foreach ($incus->profiles($cluster) as $p) {
                     $this->profileOptions[$p] = $p;
                 }
-            } catch (\Throwable $e) {
+            } catch (\Throwable $_e) {
                 // ignore
             }
         }
@@ -87,21 +108,22 @@ class CreateInstanceForm extends Component
     {
         if (empty($this->catalog)) {
             return [
-                'debian/12'    => 'Debian 12 (fallback)',
+                'debian/12' => 'Debian 12 (fallback)',
                 'ubuntu/24.04' => 'Ubuntu 24.04 (fallback)',
-                'alpine/3.22'  => 'Alpine 3.22 (fallback)',
-                'fedora/42'    => 'Fedora 42 (fallback)',
+                'alpine/3.22' => 'Alpine 3.22 (fallback)',
+                'fedora/42' => 'Fedora 42 (fallback)',
             ];
         }
 
         $wantVm = $this->type === 'virtual-machine';
 
         return collect($this->catalog)
-            ->filter(fn($img) => $img['arch'] === $this->arch)
-            ->filter(fn($img) => $wantVm ? $img['vm'] : $img['container'])
-            ->mapWithKeys(fn($img) => [$img['alias'] => $img['label'] . ' — ' . $img['alias']])
+            ->filter(fn ($img) => $img['arch'] === $this->arch)
+            ->filter(fn ($img) => $wantVm ? $img['vm'] : $img['container'])
+            ->mapWithKeys(fn ($img) => [$img['alias'] => $img['label'].' — '.$img['alias']])
             ->all();
     }
+
     /** Same filtered set, shaped for the Alpine combobox: [{alias,label,sub}]. */
     public function getImageListProperty(): array
     {
@@ -117,12 +139,12 @@ class CreateInstanceForm extends Component
         $wantVm = $this->type === 'virtual-machine';
 
         return collect($this->catalog)
-            ->filter(fn($img) => $img['arch'] === $this->arch)
-            ->filter(fn($img) => $wantVm ? $img['vm'] : $img['container'])
-            ->map(fn($img) => [
+            ->filter(fn ($img) => $img['arch'] === $this->arch)
+            ->filter(fn ($img) => $wantVm ? $img['vm'] : $img['container'])
+            ->map(fn ($img) => [
                 'alias' => $img['alias'],
                 'label' => $img['label'],
-                'sub'   => $img['alias'],
+                'sub' => $img['alias'],
             ])
             ->values()
             ->all();
@@ -139,14 +161,42 @@ class CreateInstanceForm extends Component
         }
     }
 
+    /**
+     * Whether the current user holds a given permission.
+     * super_admin bypasses via Shield's gate interception.
+     */
+    protected function userCan(string $permission): bool
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        return $user?->can($permission) ?? false;
+    }
+
+    /** For the Blade: hide the "Create instance" trigger from users who can't create. */
+    public function canCreate(): bool
+    {
+        return $this->userCan('instance.create');
+    }
+
     public function create(): void
     {
+        if (! $this->userCan('instance.create')) {
+            Notification::make()
+                ->title('Not authorized')
+                ->body('You do not have permission to create instances.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
         $this->validate([
-            'name'     => ['required', 'max:63', 'regex:/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/'],
-            'target'   => ['required'],
+            'name' => ['required', 'max:63', 'regex:/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/'],
+            'target' => ['required'],
             'profiles' => ['required', 'array', 'min:1'],
         ], [
-            'name.regex'   => 'Name may only contain letters, digits, and hyphens (no spaces, dots, or underscores).',
+            'name.regex' => 'Name may only contain letters, digits, and hyphens (no spaces, dots, or underscores).',
             'profiles.min' => 'Pick at least one profile.',
         ]);
 
@@ -156,12 +206,14 @@ class CreateInstanceForm extends Component
 
         if (! $cluster) {
             Notification::make()->title('No cluster available')->danger()->send();
+
             return;
         }
 
         $alias = $this->useCustomImage ? trim($this->imageCustom) : trim($this->imageAlias);
         if ($alias === '') {
             Notification::make()->title('Image required')->body('Choose or enter an image.')->danger()->send();
+
             return;
         }
 
@@ -191,23 +243,23 @@ class CreateInstanceForm extends Component
 
         $source = $this->imageScope === 'remote'
             ? [
-                'type'     => 'image',
-                'mode'     => 'pull',
-                'server'   => 'https://images.linuxcontainers.org',
+                'type' => 'image',
+                'mode' => 'pull',
+                'server' => 'https://images.linuxcontainers.org',
                 'protocol' => 'simplestreams',
-                'alias'    => $alias,
+                'alias' => $alias,
             ]
             : [
-                'type'  => 'image',
+                'type' => 'image',
                 'alias' => $alias,
             ];
 
         $payload = [
-            'name'     => $this->name,
-            'type'     => $this->type,
-            'source'   => $source,
+            'name' => $this->name,
+            'type' => $this->type,
+            'source' => $source,
             'profiles' => array_values($this->profiles),
-            'config'   => $config,
+            'config' => $config,
         ];
         if ($this->description !== '') {
             $payload['description'] = $this->description;

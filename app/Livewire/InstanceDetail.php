@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Models\User;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
 use Filament\Actions\Action;
@@ -11,6 +12,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
+use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -20,11 +22,15 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
     use InteractsWithSchemas;
 
     public bool $open = false;
+
     public string $cluster = '';
+
     public string $name = '';
 
     public array $detail = [];
+
     public array $snapshots = [];
+
     public array $config = [];
 
     #[On('open-instance-detail')]
@@ -58,6 +64,18 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         return app(ClusterRegistry::class)->find($this->cluster);
     }
 
+    /**
+     * Whether the current user holds a given permission.
+     * super_admin bypasses via Shield's gate interception.
+     */
+    protected function userCan(string $permission): bool
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        return $user?->can($permission) ?? false;
+    }
+
     /** Create snapshot — soft confirm (non-destructive). */
     public function createSnapshotAction(): Action
     {
@@ -65,14 +83,20 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             ->label('New snapshot')
             ->icon('heroicon-o-camera')
             ->color('primary')
+            ->visible(fn (): bool => $this->userCan('snapshot.create'))
             ->schema([
                 TextInput::make('snapshot')
                     ->label('Snapshot name')
-                    ->default(fn() => $this->name . '-' . now()->format('Ymd-His'))
+                    ->default(fn () => $this->name.'-'.now()->format('Ymd-His'))
                     ->required()
                     ->maxLength(64),
             ])
             ->action(function (array $data) {
+                if (! $this->userCan('snapshot.create')) {
+                    Notification::make()->title('Not authorized')->body('You do not have permission to create snapshots.')->danger()->send();
+
+                    return;
+                }
                 try {
                     app(IncusClient::class)->createSnapshot($this->target(), $this->name, $data['snapshot']);
                     Notification::make()->title('Snapshot created')->body($data['snapshot'])->success()->send();
@@ -90,21 +114,26 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             ->label('Restore')
             ->icon('heroicon-o-arrow-uturn-left')
             ->color('warning')
+            ->visible(fn (): bool => $this->userCan('snapshot.restore'))
             ->requiresConfirmation()
             ->modalHeading('Restore snapshot')
-            ->modalDescription(fn(array $arguments)
-                => "This reverts “{$this->name}” entirely to snapshot “{$arguments['snapshot']}”, including its data. This cannot be undone.")
+            ->modalDescription(fn (array $arguments) => "This reverts “{$this->name}” entirely to snapshot “{$arguments['snapshot']}”, including its data. This cannot be undone.")
             ->schema([
                 TextInput::make('confirm')
                     ->label("Type the instance name (“{$this->name}”) to confirm")
                     ->required()
-                    ->rule(fn() => function ($attr, $value, $fail) {
+                    ->rule(fn () => function ($_attr, $value, $fail) {
                         if ($value !== $this->name) {
                             $fail('Name does not match.');
                         }
                     }),
             ])
             ->action(function (array $arguments) {
+                if (! $this->userCan('snapshot.restore')) {
+                    Notification::make()->title('Not authorized')->body('You do not have permission to restore snapshots.')->danger()->send();
+
+                    return;
+                }
                 try {
                     app(IncusClient::class)->restoreSnapshot($this->target(), $this->name, $arguments['snapshot']);
                     Notification::make()->title('Restored')->body($arguments['snapshot'])->success()->send();
@@ -115,6 +144,7 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
                 }
             });
     }
+
     /** Delete the whole instance — STRONG guard: type the instance name. Destructive. */
     public function deleteInstanceAction(): Action
     {
@@ -122,20 +152,26 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             ->label('Delete instance')
             ->icon('heroicon-o-trash')
             ->color('danger')
+            ->visible(fn (): bool => $this->userCan('instance.delete'))
             ->requiresConfirmation()
             ->modalHeading('Delete instance')
-            ->modalDescription(fn() => "This permanently deletes “{$this->name}” and its root filesystem. Attached volumes that persist are not removed. This cannot be undone.")
+            ->modalDescription(fn () => "This permanently deletes “{$this->name}” and its root filesystem. Attached volumes that persist are not removed. This cannot be undone.")
             ->schema([
                 TextInput::make('confirm')
                     ->label("Type the instance name (“{$this->name}”) to confirm")
                     ->required()
-                    ->rule(fn() => function ($attr, $value, $fail) {
+                    ->rule(fn () => function ($_attr, $value, $fail) {
                         if ($value !== $this->name) {
                             $fail('Name does not match.');
                         }
                     }),
             ])
             ->action(function () {
+                if (! $this->userCan('instance.delete')) {
+                    Notification::make()->title('Not authorized')->body('You do not have permission to delete instances.')->danger()->send();
+
+                    return;
+                }
                 try {
                     app(IncusClient::class)->deleteInstance($this->target(), $this->name);
                     Notification::make()->title('Instance deleted')->body($this->name)->success()->send();
@@ -150,31 +186,36 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
     public string $deleteTarget = '';
 
     /** Delete snapshot — STRONG guard: type the snapshot name. */
-    /** Delete snapshot — STRONG guard: type the snapshot name. */
     public function deleteSnapshotAction(): Action
     {
         return Action::make('deleteSnapshot')
             ->label('Delete')
             ->icon('heroicon-o-trash')
             ->color('danger')
+            ->visible(fn (): bool => $this->userCan('snapshot.delete'))
             ->requiresConfirmation()
             ->modalHeading('Delete snapshot')
-            ->mountUsing(fn(array $arguments) => $this->deleteTarget = $arguments['snapshot'] ?? '')
+            ->mountUsing(fn (array $arguments) => $this->deleteTarget = $arguments['snapshot'] ?? '')
             ->schema([
                 TextInput::make('confirm')
                     ->label('Type the snapshot name to confirm')
                     ->required()
-                    ->rule(fn() => function ($_attribute, $value, $fail) {
+                    ->rule(fn () => function ($_attribute, $value, $fail) {
                         if ($value !== $this->deleteTarget) {
                             $fail('Name does not match.');
                         }
                     }),
             ])
-            ->action(fn() => $this->deleteConfirmed());
+            ->action(fn () => $this->deleteConfirmed());
     }
 
     protected function deleteConfirmed(): void
     {
+        if (! $this->userCan('snapshot.delete')) {
+            Notification::make()->title('Not authorized')->body('You do not have permission to delete snapshots.')->danger()->send();
+
+            return;
+        }
         try {
             app(IncusClient::class)->deleteSnapshot($this->target(), $this->name, $this->deleteTarget);
             Notification::make()->title('Snapshot deleted')->body($this->deleteTarget)->success()->send();
