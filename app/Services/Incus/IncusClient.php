@@ -101,6 +101,38 @@ class IncusClient
         $this->waitForOperation($cluster, $response->json('operation'), $timeout);
     }
 
+    /**
+     * Kick off an instance create WITHOUT blocking, returning the operation URL
+     * (e.g. "/1.0/operations/{uuid}") so a worker can poll it for live progress.
+     * The synchronous createInstance() above is unchanged for existing callers.
+     */
+    public function startInstanceCreate(Cluster $cluster, array $payload, ?string $target = null): string
+    {
+        $path = '/1.0/instances';
+        if ($target) {
+            $path .= '?target='.rawurlencode($target);
+        }
+
+        $response = $this->request($cluster)->post($path, $payload);
+        $response->throw();
+
+        $operation = $response->json('operation');
+        if (! $operation) {
+            throw new \RuntimeException('Incus returned no operation URL for the create.');
+        }
+
+        return $operation;
+    }
+
+    /**
+     * Fetch the live state of a background operation for progress polling.
+     * Returns the operation object: id, status, status_code, metadata, err.
+     */
+    public function operation(Cluster $cluster, string $operationUrl): array
+    {
+        return $this->get($cluster, $operationUrl);
+    }
+
     /** Full detail for one instance (config, state, limits). */
     public function instance(Cluster $cluster, string $name): array
     {
