@@ -286,6 +286,57 @@ class IncusClient
         $this->waitForOperation($cluster, $response->json('operation'), $timeout);
     }
 
+    /** Non-blocking snapshot create: returns the operation URL for progress polling. */
+    public function startCreateSnapshot(Cluster $cluster, string $instance, string $snapshot): string
+    {
+        $encoded = rawurlencode($instance);
+        $response = $this->request($cluster)->post("/1.0/instances/{$encoded}/snapshots", [
+            'name' => $snapshot,
+            'stateful' => false,
+        ]);
+        $response->throw();
+
+        $operation = $response->json('operation');
+        if (! $operation) {
+            throw new \RuntimeException('Incus returned no operation URL for the snapshot create.');
+        }
+
+        return $operation;
+    }
+
+    /** Non-blocking snapshot restore: returns the operation URL. Destructive. */
+    public function startRestoreSnapshot(Cluster $cluster, string $instance, string $snapshot): string
+    {
+        $encoded = rawurlencode($instance);
+        $response = $this->request($cluster)->put("/1.0/instances/{$encoded}", [
+            'restore' => $snapshot,
+        ]);
+        $response->throw();
+
+        $operation = $response->json('operation');
+        if (! $operation) {
+            throw new \RuntimeException('Incus returned no operation URL for the snapshot restore.');
+        }
+
+        return $operation;
+    }
+
+    /** Non-blocking snapshot delete: returns the operation URL. */
+    public function startDeleteSnapshot(Cluster $cluster, string $instance, string $snapshot): string
+    {
+        $i = rawurlencode($instance);
+        $s = rawurlencode($snapshot);
+        $response = $this->request($cluster)->delete("/1.0/instances/{$i}/snapshots/{$s}");
+        $response->throw();
+
+        $operation = $response->json('operation');
+        if (! $operation) {
+            throw new \RuntimeException('Incus returned no operation URL for the snapshot delete.');
+        }
+
+        return $operation;
+    }
+
     /** Delete an instance. Async, destructive — stops it first if running. */
     public function deleteInstance(Cluster $cluster, string $name, int $timeout = 60): void
     {
