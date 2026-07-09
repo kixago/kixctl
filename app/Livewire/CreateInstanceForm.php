@@ -2,12 +2,14 @@
 
 namespace App\Livewire;
 
+use App\Jobs\StreamInstanceCreate;
 use App\Models\User;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\ImageCatalog;
 use App\Services\Incus\IncusClient;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Livewire\Component;
 
 class CreateInstanceForm extends Component
@@ -57,6 +59,11 @@ class CreateInstanceForm extends Component
     public string $rawConfig = '';
 
     public bool $startNow = true;
+
+    // --- Streaming create state (P2-C) ---
+    public bool $creating = false;
+
+    public string $createToken = '';
 
     public function mount(): void
     {
@@ -201,7 +208,6 @@ class CreateInstanceForm extends Component
         ]);
 
         $registry = app(ClusterRegistry::class);
-        $incus = app(IncusClient::class);
         $cluster = $registry->find($this->clusterKey) ?? collect($registry->all())->first();
 
         if (! $cluster) {
@@ -265,25 +271,28 @@ class CreateInstanceForm extends Component
             $payload['description'] = $this->description;
         }
 
-        try {
-            $incus->createInstance($cluster, $payload, $this->target);
+        // Hand off to the streaming worker; the UI now reflects live progress
+        // via broadcasts on instance-create.{token} instead of blocking here.
+        $token = (string) Str::random(24);
+        $this->createToken = $token;
+        $this->creating = true;
 
-            if ($this->startNow) {
-                $incus->setInstanceState($cluster, $this->name, 'start');
-            }
+        StreamInstanceCreate::dispatch(
+            $token,
+            $cluster->key,
+            $payload,
+            $this->target,
+            Auth::id(),
+            $this->startNow,
+        );
+    }
 
-            Notification::make()
-                ->title("Instance '{$this->name}' created")
-                ->body($this->startNow ? 'Created and started.' : 'Created (not started).')
-                ->success()
-                ->send();
-
-            $this->reset(['name', 'imageCustom', 'useCustomImage', 'limitsCpu', 'limitsMemory', 'description', 'rawConfig', 'securityNesting']);
-            $this->open = false;
-            $this->dispatch('instance-created'); // ClusterInstances re-pulls the fleet
-        } catch (\Throwable $e) {
-            Notification::make()->title('Create failed')->body($e->getMessage())->danger()->send();
-        }
+    /** Return from the progress view to a fresh, empty form. */
+    public function resetCreate(): void
+    {
+        $this->creating = false;
+        $this->createToken = '';
+        $this->reset(['name', 'imageCustom', 'useCustomImage', 'limitsCpu', 'limitsMemory', 'description', 'rawConfig', 'securityNesting']);
     }
 
     public function render()
