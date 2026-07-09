@@ -10,6 +10,7 @@
         "bezhansalleh/filament-shield": "^4.2",
         "filament/filament": "^4.0",
         "laravel/framework": "^13.8",
+        "laravel/horizon": "^5.47",
         "laravel/tinker": "^3.0"
     },
     "require-dev": {
