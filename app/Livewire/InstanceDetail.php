@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Jobs\StreamInstanceOperation;
 use App\Models\User;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
@@ -13,6 +14,7 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -46,6 +48,13 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
 
     public string $logView = 'files'; // 'files' | 'console'
 
+    // --- Streaming snapshot-op state (P2-C tail) ---
+    public string $opToken = '';
+
+    public string $opKind = '';   // 'create-snapshot' | 'restore-snapshot' | 'delete-snapshot'
+
+    public string $opLabel = '';  // human heading shown while the op runs
+
     #[On('open-instance-detail')]
     public function openFor(string $cluster, string $name): void
     {
@@ -60,6 +69,11 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         $this->consoleContent = '';
         $this->consoleLoaded = false;
         $this->logView = 'files';
+
+        // Clear any stale streaming-op state from a previous instance.
+        $this->opToken = '';
+        $this->opKind = '';
+        $this->opLabel = '';
 
         $this->refreshData();
     }
@@ -171,7 +185,48 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         return trim($s);
     }
 
-    /** Create snapshot — soft confirm (non-destructive). */
+    /**
+     * Hand a snapshot op to the Horizon worker and flip the slide-over into its
+     * live-progress state. The worker broadcasts on instance-op.{token}; the
+     * Alpine island in the blade renders it. The permission re-check and any
+     * type-the-name guard live in the calling action, NOT here.
+     */
+    protected function launchOp(string $op, string $snapshotName, string $label): void
+    {
+        $token = (string) Str::random(24);
+        $this->opToken = $token;
+        $this->opKind = $op;
+        $this->opLabel = $label;
+
+        StreamInstanceOperation::dispatch(
+            $token,
+            $this->cluster,
+            $op,
+            $this->name,
+            $snapshotName,
+            Auth::id(),
+        );
+    }
+
+    /** Island calls this on a `done` broadcast: refresh live state, fan out, clear. */
+    public function completeOp(): void
+    {
+        $this->opToken = '';
+        $this->opKind = '';
+        $this->opLabel = '';
+        $this->refreshData();
+        $this->dispatch('instance-changed'); // tell the fleet table to reload
+    }
+
+    /** Island calls this to dismiss a terminal (failed) op without refreshing. */
+    public function dismissOp(): void
+    {
+        $this->opToken = '';
+        $this->opKind = '';
+        $this->opLabel = '';
+    }
+
+    /** Create snapshot — soft confirm (non-destructive). Streams via the worker. */
     public function createSnapshotAction(): Action
     {
         return Action::make('createSnapshot')
@@ -192,13 +247,12 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
 
                     return;
                 }
-                try {
-                    app(IncusClient::class)->createSnapshot($this->target(), $this->name, $data['snapshot']);
-                    Notification::make()->title('Snapshot created')->body($data['snapshot'])->success()->send();
-                    $this->refreshData();
-                } catch (\Throwable $e) {
-                    Notification::make()->title('Snapshot failed')->body($e->getMessage())->danger()->send();
-                }
+
+                $this->launchOp(
+                    'create-snapshot',
+                    $data['snapshot'],
+                    'Creating snapshot “'.$data['snapshot'].'”…',
+                );
             });
     }
 

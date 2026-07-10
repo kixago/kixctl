@@ -1,4 +1,26 @@
 <div>
+    <style>
+        [x-cloak] {
+            display: none !important;
+        }
+
+        .kix-spin {
+            width: 1.1rem;
+            height: 1.1rem;
+            border: 2px solid #3f3f46;
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            display: inline-block;
+            animation: kixspin .7s linear infinite;
+        }
+
+        @keyframes kixspin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+
     @if ($open)
         <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;" x-transition.opacity wire:click="close">
         </div>
@@ -180,8 +202,66 @@
             {{-- Snapshots --}}
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;">
                 <div style="font-weight:600;">Snapshots ({{ count($snapshots) }})</div>
-                {{ $this->createSnapshotAction }}
+                @if ($opToken === '')
+                    {{ $this->createSnapshotAction }}
+                @endif
             </div>
+
+            {{-- Streaming snapshot-op island (P2-C tail): pure Alpine, fed only by broadcasts.
+                 Spinner for create/delete (no progress bytes); determinate bar if a restore
+                 emits fs_progress. wire:key forces a fresh mount + Echo subscription per op. --}}
+            @if ($opToken !== '')
+                <div wire:key="op-{{ $opToken }}" x-data="opProgress(@js($opToken), @js($opLabel))"
+                    style="border:1px solid #27272a;border-radius:.6rem;padding:.85rem 1rem;margin-bottom:.85rem;background:rgba(255,255,255,.015);">
+
+                    {{-- indeterminate spinner --}}
+                    <div x-show="!terminal && !determinate" style="display:flex;align-items:center;gap:.75rem;">
+                        <span class="kix-spin"></span>
+                        <span style="opacity:.85;font-size:.9rem;" x-text="message"></span>
+                    </div>
+
+                    {{-- determinate bar (restore with fs_progress) --}}
+                    <div x-show="determinate && !terminal">
+                        <div
+                            style="display:flex;justify-content:space-between;font-size:.8rem;opacity:.75;margin-bottom:.35rem;">
+                            <span x-text="stage ? (stage + '…') : message"></span>
+                            <span><span x-text="percent"></span>%<span x-show="rate" style="opacity:.6;"> (<span
+                                        x-text="rate"></span>)</span></span>
+                        </div>
+                        <div style="height:.5rem;border-radius:9999px;background:#27272a;overflow:hidden;">
+                            <div
+                                :style="{
+                                    height: '100%',
+                                    background: '#6366f1',
+                                    borderRadius: '9999px',
+                                    transition: 'width .2s ease',
+                                    width: (percent || 0) + '%'
+                                }">
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- terminal success --}}
+                    <div x-show="terminal && ok" style="display:flex;align-items:center;gap:.6rem;color:#22c55e;">
+                        <span style="font-size:1.2rem;line-height:1;">✓</span>
+                        <span style="font-size:.9rem;" x-text="message"></span>
+                    </div>
+
+                    {{-- terminal failure --}}
+                    <div x-show="terminal && !ok">
+                        <div style="display:flex;align-items:flex-start;gap:.6rem;color:#ef4444;">
+                            <span style="font-size:1.2rem;line-height:1;">✕</span>
+                            <span style="font-size:.85rem;" x-text="message"></span>
+                        </div>
+                        <div style="margin-top:.6rem;">
+                            <button type="button" @click="$wire.dismissOp()"
+                                style="padding:.4rem 1rem;border-radius:.5rem;border:1px solid #3f3f46;background:transparent;color:inherit;cursor:pointer;font-size:.82rem;">
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            @endif
 
             @forelse ($snapshots as $snap)
                 <div
@@ -204,3 +284,56 @@
         </div>
     @endif
 </div>
+
+<script>
+    function opProgress(token, label) {
+        return {
+            token: token,
+            phase: 'working',
+            stage: null,
+            percent: null,
+            rate: null,
+            message: label || 'Working…',
+            determinate: false,
+            terminal: false,
+            ok: false,
+
+            init() {
+                if (!window.Echo) {
+                    this.message = 'Live updates unavailable (Echo not loaded).';
+                    return;
+                }
+                window.Echo.channel('instance-op.' + this.token)
+                    .listen('.progress', (e) => this.onProgress(e));
+            },
+
+            onProgress(e) {
+                this.phase = e.phase;
+
+                if (e.phase === 'downloading' && e.percent !== null && e.percent !== undefined) {
+                    this.determinate = true;
+                    this.percent = e.percent;
+                    this.stage = e.stage;
+                    this.rate = e.rate;
+                    this.message = e.message || 'Working…';
+                } else if (e.phase === 'working') {
+                    this.message = e.message || 'Working…';
+                    if (this.determinate) this.percent = 100;
+                } else if (e.phase === 'done') {
+                    this.terminal = true;
+                    this.ok = true;
+                    this.percent = 100;
+                    this.message = e.message || 'Done.';
+                    // Let the ✓ land, then refresh the list + fan out and clear the island.
+                    setTimeout(() => {
+                        if (this.$wire) this.$wire.completeOp();
+                    }, 900);
+                } else if (e.phase === 'failed') {
+                    this.terminal = true;
+                    this.ok = false;
+                    this.message = e.message || 'Operation failed.';
+                }
+            },
+        };
+    }
+</script>
