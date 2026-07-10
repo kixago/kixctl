@@ -256,7 +256,7 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             });
     }
 
-    /** Restore — STRONG guard: type the instance name. Destructive. */
+    /** Restore — STRONG guard: type the instance name. Destructive. Streams via the worker. */
     public function restoreAction(): Action
     {
         return Action::make('restore')
@@ -283,14 +283,12 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
 
                     return;
                 }
-                try {
-                    app(IncusClient::class)->restoreSnapshot($this->target(), $this->name, $arguments['snapshot']);
-                    Notification::make()->title('Restored')->body($arguments['snapshot'])->success()->send();
-                    $this->refreshData();
-                    $this->dispatch('instance-changed'); // tell the table to reload
-                } catch (\Throwable $e) {
-                    Notification::make()->title('Restore failed')->body($e->getMessage())->danger()->send();
-                }
+
+                $this->launchOp(
+                    'restore-snapshot',
+                    $arguments['snapshot'],
+                    'Restoring “'.$this->name.'” from “'.$arguments['snapshot'].'”…',
+                );
             });
     }
 
