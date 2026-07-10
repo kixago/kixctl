@@ -21,14 +21,43 @@
         }
     </style>
 
-    @if ($open)
-        <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;" x-transition.opacity wire:click="close">
+    {{-- Alpine owns visibility (entangled with Livewire `open`). The slide is driven
+         entirely by inline :style transforms — no Tailwind utility classes, so it does
+         not depend on what's in the Filament CSS bundle. Panel stays in the DOM and is
+         pushed off-canvas when closed, so the transition runs both directions. --}}
+    <div x-data="{ show: $wire.entangle('open') }" x-cloak>
+
+        {{-- Scrim: opacity only, all style reactive --}}
+        <div @click="show = false"
+            :style="{
+                position: 'fixed',
+                inset: '0',
+                background: 'rgba(0,0,0,.5)',
+                zIndex: 40,
+                transition: 'opacity .3s ease',
+                opacity: show ? '1' : '0',
+                pointerEvents: show ? 'auto' : 'none'
+            }">
         </div>
 
-        <div style="position:fixed;top:0;right:0;height:100vh;width:min(560px,100vw);z-index:50;
-                background:var(--gray-900,#18181b);border-left:1px solid #27272a;overflow-y:auto;padding:1.5rem;"
-            x-transition:enter="transition ease-out duration-200" x-transition:enter-start="translate-x-full"
-            x-transition:enter-end="translate-x-0">
+        {{-- Panel: slides on transform, all style reactive --}}
+        <div
+            :style="{
+                position: 'fixed',
+                top: '0',
+                right: '0',
+                height: '100vh',
+                width: 'min(560px,100vw)',
+                zIndex: 50,
+                background: 'var(--gray-900,#18181b)',
+                borderLeft: '1px solid #27272a',
+                overflowY: 'auto',
+                padding: '1.5rem',
+                willChange: 'transform',
+                boxShadow: show ? '-8px 0 24px rgba(0,0,0,.3)' : 'none',
+                transition: show ? 'transform .3s ease-out' : 'transform .25s ease-in',
+                transform: show ? 'translateX(0)' : 'translateX(100%)'
+            }">
 
             {{-- Header --}}
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
@@ -38,7 +67,7 @@
                 </div>
                 <div style="display:flex;align-items:center;gap:.75rem;">
                     {{ $this->deleteInstanceAction }}
-                    <button wire:click="close"
+                    <button @click="show = false"
                         style="opacity:.6;font-size:1.5rem;line-height:1;cursor:pointer;background:none;border:none;color:inherit;">&times;</button>
                 </div>
             </div>
@@ -207,9 +236,7 @@
                 @endif
             </div>
 
-            {{-- Streaming snapshot-op island (P2-C tail): pure Alpine, fed only by broadcasts.
-                 Spinner for create/delete (no progress bytes); determinate bar if a restore
-                 emits fs_progress. wire:key forces a fresh mount + Echo subscription per op. --}}
+            {{-- Streaming snapshot-op island (P2-C tail): pure Alpine, fed only by broadcasts. --}}
             @if ($opToken !== '')
                 <div wire:key="op-{{ $opToken }}" x-data="opProgress(@js($opToken), @js($opLabel))"
                     style="border:1px solid #27272a;border-radius:.6rem;padding:.85rem 1rem;margin-bottom:.85rem;background:rgba(255,255,255,.015);">
@@ -271,7 +298,7 @@
                         <div style="font-weight:600;font-size:.9rem;">{{ $snap['name'] }}</div>
                         <div style="opacity:.5;font-size:.75rem;">{{ $snap['created_at'] }}</div>
                     </div>
-                    <div style="display:flex;gap:.4rem;">
+                    <div style="display:flex;gap:.4rem;{{ $opToken !== '' ? 'opacity:.4;pointer-events:none;' : '' }}">
                         {{ ($this->restoreAction)(['snapshot' => $snap['name']]) }}
                         {{ ($this->deleteSnapshotAction)(['snapshot' => $snap['name']]) }}
                     </div>
@@ -282,58 +309,57 @@
 
             <x-filament-actions::modals />
         </div>
-    @endif
+    </div>
+
+    <script>
+        function opProgress(token, label) {
+            return {
+                token: token,
+                phase: 'working',
+                stage: null,
+                percent: null,
+                rate: null,
+                message: label || 'Working…',
+                determinate: false,
+                terminal: false,
+                ok: false,
+
+                init() {
+                    if (!window.Echo) {
+                        this.message = 'Live updates unavailable (Echo not loaded).';
+                        return;
+                    }
+                    window.Echo.channel('instance-op.' + this.token)
+                        .listen('.progress', (e) => this.onProgress(e));
+                },
+
+                onProgress(e) {
+                    this.phase = e.phase;
+
+                    if (e.phase === 'downloading' && e.percent !== null && e.percent !== undefined) {
+                        this.determinate = true;
+                        this.percent = e.percent;
+                        this.stage = e.stage;
+                        this.rate = e.rate;
+                        this.message = e.message || 'Working…';
+                    } else if (e.phase === 'working') {
+                        this.message = e.message || 'Working…';
+                        if (this.determinate) this.percent = 100;
+                    } else if (e.phase === 'done') {
+                        this.terminal = true;
+                        this.ok = true;
+                        this.percent = 100;
+                        this.message = e.message || 'Done.';
+                        setTimeout(() => {
+                            if (this.$wire) this.$wire.completeOp();
+                        }, 900);
+                    } else if (e.phase === 'failed') {
+                        this.terminal = true;
+                        this.ok = false;
+                        this.message = e.message || 'Operation failed.';
+                    }
+                },
+            };
+        }
+    </script>
 </div>
-
-<script>
-    function opProgress(token, label) {
-        return {
-            token: token,
-            phase: 'working',
-            stage: null,
-            percent: null,
-            rate: null,
-            message: label || 'Working…',
-            determinate: false,
-            terminal: false,
-            ok: false,
-
-            init() {
-                if (!window.Echo) {
-                    this.message = 'Live updates unavailable (Echo not loaded).';
-                    return;
-                }
-                window.Echo.channel('instance-op.' + this.token)
-                    .listen('.progress', (e) => this.onProgress(e));
-            },
-
-            onProgress(e) {
-                this.phase = e.phase;
-
-                if (e.phase === 'downloading' && e.percent !== null && e.percent !== undefined) {
-                    this.determinate = true;
-                    this.percent = e.percent;
-                    this.stage = e.stage;
-                    this.rate = e.rate;
-                    this.message = e.message || 'Working…';
-                } else if (e.phase === 'working') {
-                    this.message = e.message || 'Working…';
-                    if (this.determinate) this.percent = 100;
-                } else if (e.phase === 'done') {
-                    this.terminal = true;
-                    this.ok = true;
-                    this.percent = 100;
-                    this.message = e.message || 'Done.';
-                    // Let the ✓ land, then refresh the list + fan out and clear the island.
-                    setTimeout(() => {
-                        if (this.$wire) this.$wire.completeOp();
-                    }, 900);
-                } else if (e.phase === 'failed') {
-                    this.terminal = true;
-                    this.ok = false;
-                    this.message = e.message || 'Operation failed.';
-                }
-            },
-        };
-    }
-</script>

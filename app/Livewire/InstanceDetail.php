@@ -365,13 +365,12 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
 
             return;
         }
-        try {
-            app(IncusClient::class)->deleteSnapshot($this->target(), $this->name, $this->deleteTarget);
-            Notification::make()->title('Snapshot deleted')->body($this->deleteTarget)->success()->send();
-            $this->refreshData();
-        } catch (\Throwable $e) {
-            Notification::make()->title('Delete failed')->body($e->getMessage())->danger()->send();
-        }
+
+        $this->launchOp(
+            'delete-snapshot',
+            $this->deleteTarget,
+            'Deleting snapshot “'.$this->deleteTarget.'”…',
+        );
     }
 
     /**
