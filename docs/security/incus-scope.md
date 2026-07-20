@@ -1,8 +1,8 @@
 # Incus Access Scope — Control-Plane Hardening (P2-4)
 
-**Status:** locked
+**Status:** locked — core gate closed
 **Applies to:** how kixctl authenticates to and talks to Incus, in dev and in production
-**Last reviewed:** 2026-07-19
+**Last reviewed:** 2026-07-20
 **Verified against:** Incus authorization and authentication docs (main, last upstream update July 2026), Incus 7.2 line
 
 This is a decision record, not a runbook. It captures what kixctl is allowed to ask Incus to do, why the grant is drawn exactly where it is, and the reasoning I want on paper so nobody — including me, six months from now — quietly widens it back out to blanket admin because it was convenient on a Friday.
@@ -87,7 +87,7 @@ projects:
   - default
 ```
 
-Set via `incus config trust edit <fingerprint>` after the certificate is added to the trust store (`incus config trust add-certificate <file>`, or a one-time token via `incus config trust add`).
+This is live as of 2026-07-20. The `kixctl` client certificate — an ECDSA P-384 key generated for the app alone, distinct from any admin identity — sits in the cluster's shared trust store (fingerprint `19bf4593…b34b66`). It was added restricted from the first second, via `incus config trust add-certificate <file> --restricted --projects default`, so there was never a window in which it existed as unrestricted admin. Before anything used it, it was proven against the live cluster with read-only calls only: `/1.0` returned `auth: trusted` for this certificate over `tls`, and it could list instances and cluster members in `default`.
 
 ### The powers this identity must never hold
 
@@ -95,11 +95,13 @@ Incus's own authorization model flags a specific set of relations as unsafe for 
 
 ---
 
-## 6. Dev vs production, and how we get there without locking me out
+## 6. Dev vs production, and how we got there without locking me out
 
-The `driver` switch in `config/incus.php` already carries both postures: `socket` for local dev, `https` for a real install over a scoped certificate. Production is always `https`.
+The `driver` switch in `config/incus.php` carries both postures: `socket` for local dev on a cluster member, `https` for a real install over the scoped certificate. Production is always `https`, and as of 2026-07-20 dev is too — the flip is done.
 
-The cutover is additive and reversible by design. The certificate is generated and added to the trust store first, then proven against the live cluster with read-only calls only — list members, list instances — before kixctl is ever pointed at it and before the driver is flipped. Throughout that process the local admin socket on `powerhouse` remains as break-glass. If the scope turns out to be wrong, the fallback is to drop back to the socket and re-edit the trust entry; a bad grant cannot lock me out of my own control plane, because the socket is still there until the certificate is proven. Only once the scoped certificate demonstrably does everything kixctl needs does `https` become the path and the socket go away in production.
+The cutover was additive and reversible by design, and that is how it went: the certificate was generated and trust-added first, proven with read-only calls, and only then was `INCUS_DRIVER` flipped to `https`. Throughout, the local admin socket on `powerhouse` stayed as break-glass — a wrong grant could not lock me out, because the socket was still there until the certificate was proven. It is proven; `https` is the path.
+
+One implementation detail is worth recording because it is exactly the kind of thing that bites in production: `config/incus.php` resolves the certificate and key paths to absolute form regardless of the process working directory. A relative path in `.env` works when you launch from the project root but fails the moment a Horizon worker or a systemd unit runs from somewhere else — the classic works-in-dev, fails-in-prod trap. The resolver closes it: absolute paths pass through, relative paths resolve against the app root, so the credential is found no matter who starts the process.
 
 ---
 
@@ -111,9 +113,9 @@ No user-controlled input reaches a shell, anywhere, because kixctl does not shel
 
 ## 8. Network segmentation and transport
 
-The admin surface is not casually internet-exposed. The control plane and its API traffic sit behind WireGuard; remote clusters — mine and, later, customers' — are reached over that tunnel, not over a certificate flapping in the public breeze. The certificate is the identity; WireGuard is the perimeter; they are complementary, not redundant.
+The admin surface is not casually internet-exposed. The intended posture is that the control plane and its API traffic sit behind WireGuard; remote clusters — mine and, later, customers' — are reached over that tunnel, not over a certificate flapping in the public breeze. The certificate is the identity; WireGuard is the perimeter; they are complementary, not redundant. This is the recorded design; standing up the tunnel and moving the admin surface onto it is its own deploy (see §12).
 
-The `forceTLS` flip belongs to this gate. Once the admin surface is behind TLS, Reverb and the Filament panel's Echo config (`config/filament.php` → `broadcasting.echo`) move from the dev setting of `ws://localhost:8080` to `wss` with `forceTLS => true`. Dev keeps the plaintext local setting; production does not.
+The `forceTLS` flip belongs with that same work. Once the admin surface is behind TLS, Reverb and the Filament panel's Echo config (`config/filament.php` → `broadcasting.echo`) move from the dev setting of `ws://localhost:8080` to `wss` with `forceTLS => true`. Dev keeps the plaintext local setting; production does not. It stays `false` deliberately until the admin surface is actually behind TLS — flipping it early only breaks local Reverb.
 
 ---
 
@@ -121,7 +123,9 @@ The `forceTLS` flip belongs to this gate. Once the admin surface is behind TLS, 
 
 kixctl's Postgres is its own state — users, roles, jobs, sessions, cache pointers — and it is deliberately separate from everything else. It never holds a copy of Incus state (the data model is live-first: fleet state is always read from Incus at render time). Nothing but the platform touches this database. In the appliance posture it runs under the floor as a managed service the owner can inspect but that otherwise stays invisible; a bolt-on install may point at an external database if the operator insists, though that is discouraged and unsupported as a default.
 
-That state deserves a real backup path — a scheduled dump with retention, restorable independently of any instance. It is called out here because a control plane that can rebuild the world but cannot recover its own memory is only half-hardened. This is the one P2-4 item that is scoped but not yet implemented.
+That state has a real backup path as of 2026-07-20. On the database host it is a declarative NixOS `services.postgresqlBackup` unit: `pg_dump` of the `kixctl` database, run by the `postgres` user over the local socket — peer auth, no password, no network — on a nightly timer made persistent, so a dump is not silently skipped if the box was down at the scheduled time. It writes `-C --no-owner` so a restore recreates the database and ports cleanly onto a fresh role set, gzip-compressed with tooling already present on the box. It is OS-owned and independent of the app: kixctl can be dead and the backup still runs, which is the entire point — a control plane that can rebuild the world but cannot recover its own memory is only half-hardened.
+
+Two limits are named honestly as the next increment, not pretended away. The unit keeps only the latest dump — no multi-generation retention yet — and it writes to the database host's own disk, so it survives the app dying but not the host dying. Real retention (N generations) and an offsite copy are the follow-on that turns "a nightly dump exists" into "disaster-recoverable."
 
 ---
 
@@ -149,16 +153,19 @@ Worth recording because it is a real property of any Incus fleet: operators some
 
 ## 12. Gate status
 
-| Item                                                  | State                              |
-| ----------------------------------------------------- | ---------------------------------- |
-| API surface enumerated from real code                 | done — Section 3                   |
-| Least-privilege scope designed (not blanket admin)    | done — Sections 4, 5               |
-| Restricted certificate generated and proven read-only | next action                        |
-| Driver flipped to `https` in production               | follows the proof                  |
-| Shell-safety guarantee reviewed and recorded          | done — Section 7                   |
-| Network segmentation (WireGuard) recorded             | done — Section 8                   |
-| `forceTLS` → `true` at the TLS switch                 | done, tied to the flip — Section 8 |
-| Postgres backup path                                  | scoped, not yet built — Section 9  |
-| Authorization-provider seam recorded                  | done — Section 10                  |
+| Item                                                    | State                                                  |
+| ------------------------------------------------------- | ------------------------------------------------------ |
+| API surface enumerated from real code                   | done — §3                                              |
+| Least-privilege scope designed (not blanket admin)      | done — §4, §5                                          |
+| Restricted certificate generated and proven read-only   | done — §5 (fingerprint `19bf4593…b34b66`)              |
+| Driver on `https` (socket kept only as dev break-glass) | done — §6                                              |
+| Cert paths resolved absolutely (CWD-independent)        | done — §6                                              |
+| Shell-safety guarantee reviewed and recorded            | done — §7                                              |
+| Postgres backup path                                    | done — §9 (retention + offsite are the next increment) |
+| Authorization-provider seam recorded                    | done — §10                                             |
+| Network segmentation (WireGuard)                        | posture recorded — §8; implementation pending          |
+| `forceTLS` → `true` at the TLS switch                   | deferred with the WireGuard work — §8                  |
 
-**Done when** every Coolify-shape risk above is addressed and written down — and it is — and dev talks to Incus over a scoped certificate rather than the socket. That last step is the next action: generate the certificate, prove it read-only against the live cluster, then flip the driver.
+**Done when** every Coolify-shape risk above is addressed and written down, and dev talks to Incus over a scoped certificate rather than the socket. Both hold: the risks are recorded here, and the scoped certificate is live with the driver on `https`. **The core gate is closed.**
+
+What remains is follow-on hardening, not gate conditions: putting the admin surface behind WireGuard and flipping `forceTLS` with it, and adding retention plus an offsite copy to the database backup. Those are tracked as their own work, not blockers on P2-4.
