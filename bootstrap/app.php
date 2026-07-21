@@ -13,7 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Behind Caddy (LAN TLS terminator): trust its X-Forwarded-* so the app
+        // sees https — Secure cookies, correct scheme on Livewire/asset URLs.
+        $middleware->trustProxies(at: ['192.168.2.0/24']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
