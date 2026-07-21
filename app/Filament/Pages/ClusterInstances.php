@@ -16,9 +16,9 @@ class ClusterInstances extends Page
 {
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedServerStack;
 
-    protected static ?string $navigationLabel = 'Cluster';
+    protected static ?string $navigationLabel = 'Instances';
 
-    protected static ?string $title = 'Cluster';
+    protected static ?string $title = 'Instances';
 
     protected string $view = 'filament.pages.cluster-instances';
 
@@ -43,11 +43,38 @@ class ClusterInstances extends Page
         $this->instances = [];
 
         foreach ($registry->all() as $cluster) {
-            $this->clusters[] = ['key' => $cluster->key, 'label' => $cluster->label];
-            $this->members = array_merge($this->members, $incus->members($cluster));
-            $this->instances = array_merge($this->instances, $incus->instances($cluster));
+            // Each cluster is loaded in isolation. A cluster that is down,
+            // misconfigured, or has a bad cert must NOT take the page (or any
+            // other cluster) with it — it degrades to an unreachable entry.
+            try {
+                // Compute both before merging so a partial failure (members OK,
+                // instances throws) leaves NO half-loaded state for this cluster.
+                $members = $incus->members($cluster);
+                $instances = $incus->instances($cluster);
+
+                $this->members = array_merge($this->members, $members);
+                $this->instances = array_merge($this->instances, $instances);
+
+                $this->clusters[] = [
+                    'key' => $cluster->key,
+                    'label' => $cluster->label,
+                    'reachable' => true,
+                    'error' => null,
+                ];
+            } catch (\Throwable $e) {
+                // Log for observability, but keep rendering everything else.
+                report($e);
+
+                $this->clusters[] = [
+                    'key' => $cluster->key,
+                    'label' => $cluster->label,
+                    'reachable' => false,
+                    'error' => $e->getMessage(),
+                ];
+            }
         }
 
+        // Enrich only the members we actually loaded (reachable clusters).
         $this->members = collect($this->members)->map(function ($m) {
             $parts = parse_url($m['url']);
 
