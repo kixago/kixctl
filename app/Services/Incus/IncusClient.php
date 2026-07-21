@@ -438,11 +438,53 @@ class IncusClient
 
         return Http::baseUrl($c['url'])
             ->withOptions([
-                'cert' => $c['client_cert'],
-                'ssl_key' => $c['client_key'],
+                'cert' => $this->materializeCredential($c['client_cert']),
+                'ssl_key' => $this->materializeCredential($c['client_key']),
                 'verify' => $c['verify'] ?? false,
             ])
             ->acceptJson()
             ->timeout(10);
+    }
+
+    /**
+     * Resolve a cert/key connection value to a path cURL can read.
+     * Passes an existing file path straight through (config-driven, current
+     * behavior). If handed PEM contents (DB-driven, decrypted from the encrypted
+     * column), writes them once to a private 0600 temp file and returns that path
+     * — cURL cannot take an in-memory PEM. Prefers /dev/shm so the decrypted key
+     * stays RAM-backed and never lands on persistent disk. Cached per payload.
+     */
+    protected function materializeCredential(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        // A filesystem path (config behavior) — pass through untouched.
+        if (! str_starts_with(ltrim($value), '-----BEGIN')) {
+            return $value;
+        }
+
+        static $cache = [];
+        $hash = hash('sha256', $value);
+        if (isset($cache[$hash]) && is_file($cache[$hash])) {
+            return $cache[$hash];
+        }
+
+        $dir = (is_dir('/dev/shm') && is_writable('/dev/shm'))
+            ? '/dev/shm/kixctl-incus'
+            : sys_get_temp_dir().'/kixctl-incus';
+
+        if (! is_dir($dir)) {
+            mkdir($dir, 0700, true);
+        }
+
+        $path = $dir.'/'.$hash.'.pem';
+        if (! is_file($path)) {
+            file_put_contents($path, $value);
+            chmod($path, 0600);
+        }
+
+        return $cache[$hash] = $path;
     }
 }
