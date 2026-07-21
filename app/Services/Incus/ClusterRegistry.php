@@ -2,32 +2,27 @@
 
 namespace App\Services\Incus;
 
+use App\Models\Cluster as ClusterModel;
+
 /**
  * The list of clusters this dashboard manages.
  *
- * Today: one cluster, built from config (your local connection).
- * Later: this method reads a `clusters` table and maps each row to a Cluster —
- * the ONLY place that changes when customer clusters arrive.
+ * Reads the `clusters` table and maps each active row to a Cluster value object
+ * via toEndpoint(). Single source of clusters for the whole app — page, widget,
+ * create form, instance detail. (Config/.env INCUS_* are now seed-only.)
  */
 class ClusterRegistry
 {
     /** @return Cluster[] */
     public function all(): array
     {
-        return [
-            new Cluster(
-                key: 'local',
-                label: config('incus.label', 'My Cluster'),
-                connection: [
-                    'driver'      => config('incus.driver'),
-                    'socket'      => config('incus.socket'),
-                    'url'         => config('incus.url'),
-                    'client_cert' => config('incus.client_cert'),
-                    'client_key'  => config('incus.client_key'),
-                    'verify'      => config('incus.verify'),
-                ],
-            ),
-        ];
+        return ClusterModel::query()
+            ->where('is_active', true)
+            ->orderBy('sort')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (ClusterModel $c) => $c->toEndpoint())
+            ->all();
     }
 
     public function find(string $key): ?Cluster
@@ -37,6 +32,7 @@ class ClusterRegistry
                 return $cluster;
             }
         }
+
         return null;
     }
 }
