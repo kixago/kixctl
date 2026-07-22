@@ -13,8 +13,13 @@
                 Clusters</div>
             <div style="display:flex;flex-wrap:wrap;gap:.5rem;">
                 <template x-for="c in clusters" :key="c.key">
-                    <button @click="toggleCluster(c.key)" :style="chipStyle(clusterActive(c.key), '#f59e0b')"
-                        x-text="c.label"></button>
+                    <button @click="toggleCluster(c.key)"
+                        :style="chipStyle(clusterActive(c.key), c.reachable ? '#f59e0b' : '#71717a') + (c.reachable ? '' :
+                            'opacity:.45;')"
+                        :title="c.reachable ? '' : 'Unreachable: ' + (c.error || 'connection failed')">
+                        <span x-text="c.label"></span>
+                        <span x-show="!c.reachable" style="margin-left:.35rem;">⚠</span>
+                    </button>
                 </template>
             </div>
         </div>
@@ -165,6 +170,8 @@
                         if (Array.isArray(freshInstances)) this.instances = freshInstances;
                         const freshMembers = await this.$wire.get('members');
                         if (Array.isArray(freshMembers)) this.members = freshMembers;
+                        const freshClusters = await this.$wire.get('clusters');
+                        if (Array.isArray(freshClusters)) this.clusters = freshClusters;
                     });
                 },
 
