@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Clusters\Schemas;
 
+use App\Models\Cluster as ClusterRecord;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
