@@ -7,8 +7,64 @@ use Illuminate\Support\Facades\Http;
 
 class IncusClient
 {
+    /**
+     * Per-request topology cache: is this endpoint a real cluster or a
+     * standalone server, and what name does it answer to?
+     *
+     * @var array<string, array{enabled: bool, name: string}>
+     */
+    private array $topologyCache = [];
+
+    private function topology(Cluster $cluster): array
+    {
+        if (isset($this->topologyCache[$cluster->key])) {
+            return $this->topologyCache[$cluster->key];
+        }
+
+        $info = $this->get($cluster, '/1.0/cluster'); // {enabled, server_name}
+        $enabled = (bool) ($info['enabled'] ?? false);
+
+        $name = $info['server_name'] ?? '';
+        if ($name === '') {
+            // Standalone servers leave server_name blank here; read the
+            // hostname from the main server endpoint instead.
+            $server = $this->get($cluster, '/1.0');
+            $name = $server['environment']['server_name'] ?? $cluster->key;
+        }
+
+        return $this->topologyCache[$cluster->key] = ['enabled' => $enabled, 'name' => $name];
+    }
+
+    /** Standalone servers report location "none"; pin those to the pseudo-member. */
+    private function resolveLocation(Cluster $cluster, ?string $location): string
+    {
+        if ($location === null || $location === '' || $location === 'none') {
+            return $this->topology($cluster)['name'];
+        }
+
+        return $location;
+    }
+
     public function members(Cluster $cluster): array
     {
+        $topology = $this->topology($cluster);
+
+        if (! $topology['enabled']) {
+            // Standalone server (clustering never enabled): synthesize the one
+            // pseudo-member so every consumer sees a uniform shape. It answered
+            // /1.0/cluster, so it's up — a dead server throws before this line
+            // and degrades via the caller's per-cluster isolation.
+            return [[
+                'cluster' => $cluster->key,
+                'cluster_label' => $cluster->label,
+                'name' => $topology['name'],
+                'status' => 'Online',
+                'message' => 'Standalone server',
+                'url' => $cluster->connection['url'] ?? '',
+                'roles' => [],
+            ]];
+        }
+
         return collect($this->get($cluster, '/1.0/cluster/members', ['recursion' => 1]))
             ->map(fn ($m) => [
                 'cluster' => $cluster->key,
@@ -67,7 +123,7 @@ class IncusClient
                 'name' => $i['name'],
                 'type' => $i['type'],
                 'status' => $i['status'],
-                'node' => $i['location'] ?? '—',
+                'node' => $this->resolveLocation($cluster, $i['location'] ?? null),
                 'ipv4' => $this->primaryIpv4($i['state'] ?? null),
             ])
             ->sortBy('node')
