@@ -8,7 +8,10 @@ use App\Filament\Resources\Clusters\Pages\ListClusters;
 use App\Filament\Resources\Clusters\Schemas\ClusterForm;
 use App\Filament\Resources\Clusters\Tables\ClustersTable;
 use App\Models\Cluster;
+use App\Services\Licensing\Entitlements;
 use BackedEnum;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -34,6 +37,33 @@ class ClusterResource extends Resource
     public static function table(Table $table): Table
     {
         return ClustersTable::configure($table);
+    }
+
+    /**
+     * The one upsell message for the free-cap gate — sent by the locked
+     * list button, the /create mount guard, and the beforeCreate()
+     * backstop, so the copy never drifts between the three doors.
+     */
+    public static function notifyClusterLimit(Entitlements $entitlements): void
+    {
+        $cap = $entitlements->maxClusters();
+
+        Notification::make()
+            ->warning()
+            ->title('Cluster limit reached')
+            ->body(
+                "The {$entitlements->tierLabel()} tier manages up to {$cap} ".
+                str('cluster')->plural($cap)." from this panel — every feature, no limits, on each of them. ".
+                'To manage more clusters from one pane, add a fleet license.'
+            )
+            ->persistent()
+            ->actions([
+                Action::make('upgrade')
+                    ->label('Get a fleet license')
+                    ->button()
+                    ->url('https://kixctl.com/pricing', shouldOpenInNewTab: true),
+            ])
+            ->send();
     }
 
     public static function getRelations(): array

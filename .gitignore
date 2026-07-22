@@ -22,6 +22,7 @@
 /storage/pail
 /vendor
 /storage/incus/
+/storage/license/
 _ide_helper.php
 Homestead.json
 Homestead.yaml

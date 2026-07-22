@@ -60,7 +60,12 @@ class ClusterForm
                     ->required(fn (string $operation, Get $get) => $operation === 'create' && $get('driver') === 'https')
                     ->dehydrated(fn (?string $state) => filled($state))
                     ->afterStateHydrated(fn (Textarea $component) => $component->state(''))
-                    ->helperText('Paste the PEM. On edit, leave blank to keep the current certificate.'),
+                    ->placeholder(fn (string $operation) => $operation === 'edit'
+                        ? 'Stored — leave blank to keep the current certificate'
+                        : null)
+                    ->helperText(fn (string $operation, ?ClusterRecord $record) => $operation === 'edit'
+                        ? (self::storedCertSummary($record) ?? 'No certificate stored.').' Leave blank to keep it, or paste a new PEM to replace it.'
+                        : 'Paste the PEM.'),
 
                 Textarea::make('client_key')
                     ->label('Client key (PEM)')
@@ -70,7 +75,12 @@ class ClusterForm
                     ->required(fn (string $operation, Get $get) => $operation === 'create' && $get('driver') === 'https')
                     ->dehydrated(fn (?string $state) => filled($state))
                     ->afterStateHydrated(fn (Textarea $component) => $component->state(''))
-                    ->helperText('Paste the PEM private key. Stored encrypted. On edit, leave blank to keep the current key.'),
+                    ->placeholder(fn (string $operation) => $operation === 'edit'
+                        ? '•••••• stored encrypted — never displayed'
+                        : null)
+                    ->helperText(fn (string $operation) => $operation === 'edit'
+                        ? 'A private key is stored encrypted and is never displayed here. Leave blank to keep it, or paste a new PEM to replace it.'
+                        : 'Paste the PEM private key. Stored encrypted.'),
 
                 Toggle::make('verify')
                     ->label('Verify TLS certificate')
@@ -89,5 +99,34 @@ class ClusterForm
                     ->default(0)
                     ->helperText('Lower numbers appear first.'),
             ]);
+    }
+
+    /**
+     * A safe, reassuring summary of the STORED certificate for the edit
+     * form: fingerprint + expiry (a certificate is public material — this
+     * proves "we still have it" without ever echoing the PEM back, and
+     * the private key is never summarized at all).
+     */
+    private static function storedCertSummary(?ClusterRecord $record): ?string
+    {
+        $pem = $record?->client_cert; // encrypted cast decrypts on read
+
+        if (! $pem) {
+            return null;
+        }
+
+        $fingerprint = @openssl_x509_fingerprint($pem, 'sha256');
+
+        if ($fingerprint === false) {
+            return 'A certificate is stored encrypted.';
+        }
+
+        $parsed = @openssl_x509_parse($pem);
+        $expires = isset($parsed['validTo_time_t'])
+            ? gmdate('Y-m-d', $parsed['validTo_time_t'])
+            : null;
+
+        return 'A certificate is stored (SHA-256 …'.substr($fingerprint, -8).')'
+            .($expires ? ", expires {$expires}." : '.');
     }
 }
