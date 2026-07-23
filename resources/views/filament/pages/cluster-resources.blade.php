@@ -45,18 +45,24 @@
             </template>
         </div>
 
-        {{-- Partial-data notices: clusters that could not serve THIS tab's data.
-             Data-denied must never render as data-absent — the diagnosis and
-             remediation belong on the page, not buried in a hover tooltip. --}}
+        {{-- Notices for clusters that could not serve this tab's data. Follows
+             the chip selection; collapsed to one line each, expanded on demand. --}}
         <template x-for="p in partialNotices" :key="p.key">
             <div
-                style="display:flex;align-items:baseline;gap:.5rem;margin-bottom:1rem;padding:.6rem .9rem;border:1px solid rgba(245,158,11,.4);border-radius:.5rem;background:rgba(245,158,11,.07);font-size:.85rem;">
-                <span style="color:#f59e0b;">◐</span>
-                <span>
-                    <span style="font-weight:600;" x-text="p.label"></span>
-                    <span style="opacity:.85;" x-text="' — ' + p.what + ' unavailable: ' + p.error"></span>
-                    <span x-show="p.hint" style="display:block;margin-top:.35rem;opacity:.75;" x-text="p.hint"></span>
-                </span>
+                style="margin-bottom:1rem;padding:.6rem .9rem;border:1px solid rgba(245,158,11,.4);border-radius:.5rem;background:rgba(245,158,11,.07);font-size:.85rem;">
+                <div style="display:flex;align-items:baseline;gap:.5rem;">
+                    <span style="color:#f59e0b;">◐</span>
+                    <span style="flex:1;">
+                        <span style="font-weight:600;" x-text="p.label"></span>
+                        <span style="opacity:.85;" x-text="' — ' + p.summary"></span>
+                    </span>
+                    <button @click="toggleNotice(p.key)"
+                        style="background:none;border:none;color:inherit;cursor:pointer;font-size:.8rem;opacity:.6;text-decoration:underline;white-space:nowrap;"
+                        x-text="noticeOpen(p.key) ? 'hide' : 'why?'"></button>
+                </div>
+                <div x-show="noticeOpen(p.key)"
+                    style="margin-top:.5rem;padding-left:1.35rem;opacity:.8;line-height:1.5;"
+                    x-text="p.detail"></div>
             </div>
         </template>
 
@@ -108,13 +114,13 @@
                                             </template>
                                         </span>
                                     </template>
-                                    {{-- used_by with blast-radius warning on profiles --}}
+                                    {{-- used_by, with a caution on widely shared profiles --}}
                                     <template x-if="col.field === 'used_by'">
                                         <span>
                                             <span x-text="row.used_by"></span>
                                             <span x-show="tab === 'profiles' && row.used_by >= 10"
-                                                :title="row.used_by + ' instances inherit this profile — editing it changes all of them'"
-                                                style="margin-left:.35rem;color:#f59e0b;">⚠ high blast radius</span>
+                                                :title="row.used_by + ' instances inherit this profile; editing it changes all of them'"
+                                                style="margin-left:.35rem;color:#f59e0b;">⚠ shared widely</span>
                                         </span>
                                     </template>
                                     {{-- plain fields --}}
@@ -135,7 +141,7 @@
         </div>
 
         <div style="margin-top:.75rem;font-size:.78rem;opacity:.45;">
-            Read-only view. Management verbs arrive per-resource, each behind its own permission.
+            Read-only view. Management actions arrive per resource, each behind its own permission.
         </div>
     </div>
 
@@ -147,6 +153,7 @@
                 search: '',
                 volType: 'custom',
                 selectedClusters: [],
+                openNotices: [],
                 sortField: 'name',
                 sortAsc: true,
 
@@ -209,18 +216,31 @@
                     return { volumes: this.volumes, networks: this.networks, profiles: this.profiles, pools: this.pools }[key].length;
                 },
 
+                // Notices for the current tab, limited to the selected clusters
+                // when a chip selection is active.
                 get partialNotices() {
-                    return this.clusters.flatMap(c =>
-                        (c.partial || [])
-                            .filter(p => (p.tabs || []).includes(this.tab))
-                            .map(p => ({
-                                key: c.key + '/' + p.what,
-                                label: c.label,
-                                what: p.what,
-                                error: p.error,
-                                hint: p.hint || '',
-                            }))
-                    );
+                    return this.clusters
+                        .filter(c => !this.selectedClusters.length || this.selectedClusters.includes(c.key))
+                        .flatMap(c =>
+                            (c.partial || [])
+                                .filter(p => (p.tabs || []).includes(this.tab))
+                                .map(p => ({
+                                    key: c.key + '/' + p.what,
+                                    label: c.label,
+                                    summary: p.summary || '',
+                                    detail: p.detail || '',
+                                }))
+                        );
+                },
+
+                toggleNotice(key) {
+                    const i = this.openNotices.indexOf(key);
+                    if (i === -1) this.openNotices.push(key);
+                    else this.openNotices.splice(i, 1);
+                },
+
+                noticeOpen(key) {
+                    return this.openNotices.includes(key);
                 },
 
                 get filtered() {
@@ -249,14 +269,14 @@
 
                 get emptyMessage() {
                     if (this.tab === 'volumes' && this.volType === 'custom' && !this.search && !this.selectedClusters.length) {
-                        return 'No custom volumes yet. The other volume types are instance root disks and cached images — Incus manages those through their instances. Creating a custom volume (an attachable data disk) will be the first verb on this page.';
+                        return 'No custom volumes yet. The other volume types are instance root disks and cached images, which Incus manages through their instances. Creating a custom volume, an attachable data disk, will be the first management action on this page.';
                     }
                     return 'Nothing matches.';
                 },
 
                 rowKey(row) {
-                    // Volumes: pool+name+node — same name can legally exist on
-                    // several members for local drivers. Others: cluster+name.
+                    // Volumes are keyed by pool, name, and node: the same name
+                    // can exist on several members with local storage drivers.
                     if (this.tab === 'volumes') {
                         return [row.cluster, row.pool, row.type, row.name, row.node].join('/');
                     }
@@ -296,7 +316,7 @@
                 chipTitle(c) {
                     if (!c.reachable) return 'Unreachable: ' + (c.error || 'connection failed');
                     if (c.partial && c.partial.length) {
-                        return c.partial.map(p => p.what + ' unavailable — details on the affected tab').join('\n');
+                        return c.partial.map(p => p.summary + ' See the affected tab.').join('\n');
                     }
                     return '';
                 },
@@ -310,7 +330,7 @@
 
                 init() {
                     window.addEventListener('resources-changed', async () => {
-                        // The ONLY data path into this wire:ignore root.
+                        // The only data path into this wire:ignore root.
                         this.clusters = await this.$wire.get('clusters');
                         this.pools = await this.$wire.get('pools');
                         this.volumes = await this.$wire.get('volumes');
