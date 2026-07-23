@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Services\Incus\Cluster;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
 use BackedEnum;
@@ -51,18 +52,19 @@ class ClusterResources extends Page
                 'label' => $cluster->label,
                 'reachable' => true,
                 'error' => null,
-                // Resource types this cluster could not serve (scoped cert,
-                // version gap, transient failure) — each dims ONE tab's data,
-                // never the whole cluster. Live lesson from the nested fixture:
-                // a restricted cert may be denied /1.0/storage-pools while
-                // serving everything else perfectly.
+                'version' => null,
+                // Resource types this cluster could not serve. Each dims ONE
+                // tab, never the whole cluster (degradation is per-capability).
+                // Each entry: what / tabs / error / hint (remediation text).
                 'partial' => [],
             ];
 
-            // Reachability = the same bar the Instances page uses: members()
-            // answers. If this fails, the cluster is actually down/unreachable.
+            // Reachability = the same bar the Instances page uses. serverInfo()
+            // reads /1.0, which even restricted certs may read — so this also
+            // captures the Incus version for remediation messaging.
             try {
-                $incus->members($cluster);
+                $info = $incus->serverInfo($cluster);
+                $entry['version'] = $info['server_version'] ?? null;
             } catch (\Throwable $e) {
                 report($e);
 
@@ -75,7 +77,7 @@ class ClusterResources extends Page
 
             // Each resource type loads in its own isolation. Compute into
             // locals, merge only what succeeded.
-            $pools = $this->tryLoad($entry, 'storage pools (and volumes)',
+            $pools = $this->tryLoad($entry, $cluster, 'storage pools (and volumes)', ['volumes', 'pools'],
                 fn () => $incus->storagePools($cluster));
 
             $volumes = [];
@@ -91,10 +93,10 @@ class ClusterResources extends Page
                 }
             }
 
-            $networks = $this->tryLoad($entry, 'networks',
+            $networks = $this->tryLoad($entry, $cluster, 'networks', ['networks'],
                 fn () => $incus->networks($cluster));
 
-            $profiles = $this->tryLoad($entry, 'profiles',
+            $profiles = $this->tryLoad($entry, $cluster, 'profiles', ['profiles'],
                 fn () => $incus->profilesFull($cluster));
 
             $this->pools = array_merge($this->pools, $pools);
@@ -111,10 +113,10 @@ class ClusterResources extends Page
     }
 
     /**
-     * Run one resource-type read in isolation. On failure: report it, record
-     * a partial entry on the cluster (for the chip tooltip), return [].
+     * Run one resource-type read in isolation. On failure: report it, record a
+     * partial entry (tab list + diagnosis + remediation) on the cluster, return [].
      */
-    private function tryLoad(array &$entry, string $what, \Closure $fn): array
+    private function tryLoad(array &$entry, Cluster $cluster, string $what, array $tabs, \Closure $fn): array
     {
         try {
             return $fn();
@@ -123,10 +125,52 @@ class ClusterResources extends Page
 
             $entry['partial'][] = [
                 'what' => $what,
+                'tabs' => $tabs,
                 'error' => Str::limit($e->getMessage(), 160),
+                'hint' => $this->remediationHint($e->getMessage(), $entry['version'], $cluster),
             ];
 
             return [];
+        }
+    }
+
+    /**
+     * Turn a known failure shape into an actionable diagnosis. A restricted
+     * cert CANNOT escalate its own scope via the API (an Incus security
+     * invariant we rely on and advertise) — so remediation is necessarily an
+     * action by the target cluster's admin; our job is to make it exact.
+     */
+    private function remediationHint(string $error, ?string $version, Cluster $cluster): ?string
+    {
+        if (stripos($error, 'restricted') === false) {
+            return null;
+        }
+
+        $fp = $this->certFingerprint($cluster);
+
+        return 'This server (Incus '.($version ?? 'unknown').') denies this read to restricted certificates.'
+            .' Fix on the cluster itself, at its admin\'s discretion: upgrade Incus (7.x serves restricted'
+            .' certificates a filtered view), or grant the kixctl certificate'
+            .($fp ? ' ('.$fp.')' : '')
+            .' full access via its trust entry — full access lets kixctl manage everything on that server;'
+            .' review before granting. kixctl deliberately cannot change its own access.';
+    }
+
+    /** SHA-256 fingerprint (Incus trust-store identity) of our stored client cert. */
+    private function certFingerprint(Cluster $cluster): ?string
+    {
+        $pem = $cluster->connection['client_cert'] ?? null;
+
+        if (! is_string($pem) || ! str_contains($pem, 'BEGIN CERTIFICATE')) {
+            return null;
+        }
+
+        try {
+            $fp = openssl_x509_fingerprint($pem, 'sha256');
+
+            return $fp ? 'fingerprint '.substr($fp, 0, 12).'…' : null;
+        } catch (\Throwable) {
+            return null;
         }
     }
 }

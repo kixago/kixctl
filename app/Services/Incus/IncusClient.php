@@ -45,6 +45,17 @@ class IncusClient
         return $location;
     }
 
+    /** Server identity/environment from /1.0 — readable even by restricted certs. */
+    public function serverInfo(Cluster $cluster): array
+    {
+        $s = $this->get($cluster, '/1.0');
+
+        return [
+            'server_version' => $s['environment']['server_version'] ?? null,
+            'os_name' => $s['environment']['os_name'] ?? null,
+        ];
+    }
+
     public function members(Cluster $cluster): array
     {
         $topology = $this->topology($cluster);
