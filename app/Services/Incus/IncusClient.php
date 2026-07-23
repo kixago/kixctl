@@ -142,6 +142,91 @@ class IncusClient
     }
 
     /**
+     * Storage pools with status + driver. recursion=1 returns full objects.
+     */
+    public function storagePools(Cluster $cluster): array
+    {
+        return collect($this->get($cluster, '/1.0/storage-pools', ['recursion' => 1]))
+            ->map(fn ($p) => [
+                'cluster' => $cluster->key,
+                'cluster_label' => $cluster->label,
+                'name' => $p['name'],
+                'driver' => $p['driver'] ?? '',
+                'status' => $p['status'] ?? '',
+                'used_by' => count($p['used_by'] ?? []),
+            ])
+            ->sortBy('name')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Volumes in one pool, cluster-wide. On clustered local drivers (btrfs/zfs/
+     * lvm/dir) volumes live on ONE member and the same name can exist on several
+     * members — identity is pool+name+location, never name alone. Standalone
+     * servers report location "none"; resolveLocation() pins those to the
+     * pseudo-member, same as instances().
+     */
+    public function storageVolumes(Cluster $cluster, string $pool): array
+    {
+        return collect($this->get($cluster, "/1.0/storage-pools/{$pool}/volumes", ['recursion' => 1]))
+            ->map(fn ($v) => [
+                'cluster' => $cluster->key,
+                'cluster_label' => $cluster->label,
+                'pool' => $pool,
+                'name' => $v['name'],
+                'type' => $v['type'] ?? '',
+                'content_type' => $v['content_type'] ?? '',
+                'node' => $this->resolveLocation($cluster, $v['location'] ?? null),
+                'used_by' => count($v['used_by'] ?? []),
+            ])
+            ->sortBy([['node', 'asc'], ['name', 'asc']])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Networks. "managed" separates Incus-created networks (candidates for
+     * later CRUD) from host interfaces we merely observe (never mutable).
+     */
+    public function networks(Cluster $cluster): array
+    {
+        return collect($this->get($cluster, '/1.0/networks', ['recursion' => 1]))
+            ->map(fn ($n) => [
+                'cluster' => $cluster->key,
+                'cluster_label' => $cluster->label,
+                'name' => $n['name'],
+                'type' => $n['type'] ?? '',
+                'managed' => (bool) ($n['managed'] ?? false),
+                'status' => $n['status'] ?? '',
+                'used_by' => count($n['used_by'] ?? []),
+            ])
+            ->sortByDesc('managed')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Full profile objects for the P2-E resources surface. Deliberately
+     * separate from profiles(), which returns names-only for the create form.
+     */
+    public function profilesFull(Cluster $cluster): array
+    {
+        return collect($this->get($cluster, '/1.0/profiles', ['recursion' => 1]))
+            ->map(fn ($p) => [
+                'cluster' => $cluster->key,
+                'cluster_label' => $cluster->label,
+                'name' => $p['name'],
+                'description' => $p['description'] ?? '',
+                'used_by' => count($p['used_by'] ?? []),
+                'devices' => array_keys($p['devices'] ?? []),
+            ])
+            ->sortByDesc('used_by')
+            ->values()
+            ->all();
+    }
+
+    /**
      * Create a new instance. Async — image pulls can be slow on first use.
      * $payload is the full Incus create body; $target is the node name.
      */
@@ -489,6 +574,7 @@ class IncusClient
             return Http::baseUrl('http://incus')
                 ->withOptions(['curl' => [CURLOPT_UNIX_SOCKET_PATH => $c['socket']]])
                 ->acceptJson()
+                ->connectTimeout(3)
                 ->timeout(10);
         }
 
@@ -499,6 +585,7 @@ class IncusClient
                 'verify' => $c['verify'] ?? false,
             ])
             ->acceptJson()
+            ->connectTimeout(3)
             ->timeout(10);
     }
 
