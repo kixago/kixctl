@@ -12,9 +12,11 @@
                     <button @click="toggleCluster(c.key)"
                         :style="chipStyle(clusterActive(c.key), c.reachable ? '#f59e0b' : '#71717a') + (c.reachable ? '' :
                             'opacity:.45;')"
-                        :title="c.reachable ? '' : 'Unreachable: ' + (c.error || 'connection failed')">
+                        :title="chipTitle(c)">
                         <span x-text="c.label"></span>
                         <span x-show="!c.reachable" style="margin-left:.35rem;">⚠</span>
+                        <span x-show="c.reachable && c.partial && c.partial.length"
+                            style="margin-left:.35rem;color:#f59e0b;" title="">◐</span>
                     </button>
                 </template>
             </div>
@@ -364,7 +366,13 @@
                     this.search = '';
                     this.volType = '';
                 },
-
+                chipTitle(c) {
+                    if (!c.reachable) return 'Unreachable: ' + (c.error || 'connection failed');
+                    if (c.partial && c.partial.length) {
+                        return c.partial.map(p => p.what + ' unavailable: ' + p.error).join('\n');
+                    }
+                    return '';
+                },
                 chipStyle(active, color) {
                     return 'padding:.35rem .8rem;border-radius:9999px;font-size:.85rem;cursor:pointer;border:1px solid;' +
                         (active ?
