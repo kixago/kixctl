@@ -1,8 +1,7 @@
 <x-filament-panels::page>
     <div wire:poll.30s="loadData"></div>
 
-    <div wire:ignore
-        x-data="resourcesView(@js($clusters), @js($pools), @js($volumes), @js($networks), @js($profiles))">
+    <div wire:ignore x-data="resourcesView(@js($clusters), @js($pools), @js($volumes), @js($networks), @js($profiles))">
 
         {{-- Cluster chips --}}
         <div style="margin-bottom:1rem;">
@@ -16,8 +15,8 @@
                         :title="chipTitle(c)">
                         <span x-text="c.label"></span>
                         <span x-show="!c.reachable" style="margin-left:.35rem;">⚠</span>
-                        <span x-show="c.reachable && c.partial && c.partial.length" style="margin-left:.35rem;color:#f59e0b;"
-                            title="">◐</span>
+                        <span x-show="c.reachable && c.partial && c.partial.length"
+                            style="margin-left:.35rem;color:#f59e0b;" title="">◐</span>
                     </button>
                 </template>
             </div>
@@ -30,7 +29,8 @@
                     style="padding:.55rem 1rem;font-size:.9rem;background:none;border:none;color:inherit;cursor:pointer;border-bottom:2px solid transparent;"
                     :style="tab === t.key ? 'border-bottom-color:#f59e0b;opacity:1;font-weight:600;' : 'opacity:.55;'">
                     <span x-text="t.label"></span>
-                    <span style="margin-left:.3rem;font-size:.75rem;opacity:.6;" x-text="'(' + countFor(t.key) + ')'"></span>
+                    <span style="margin-left:.3rem;font-size:.75rem;opacity:.6;"
+                        x-text="'(' + countFor(t.key) + ')'"></span>
                 </button>
             </template>
         </div>
@@ -60,9 +60,14 @@
                         style="background:none;border:none;color:inherit;cursor:pointer;font-size:.8rem;opacity:.6;text-decoration:underline;white-space:nowrap;"
                         x-text="noticeOpen(p.key) ? 'hide' : 'why?'"></button>
                 </div>
-                <div x-show="noticeOpen(p.key)"
-                    style="margin-top:.5rem;padding-left:1.35rem;opacity:.8;line-height:1.5;"
-                    x-text="p.detail"></div>
+                <div
+                    :style="'display:grid;transition:grid-template-rows .3s ease, opacity .3s ease;' +
+                    'grid-template-rows:' + (noticeOpen(p.key) ? '1fr' : '0fr') + ';' +
+                    'opacity:' + (noticeOpen(p.key) ? '.8' : '0') + ';'">
+                    <div style="overflow:hidden;min-height:0;">
+                        <div style="margin-top:.5rem;padding-left:1.35rem;line-height:1.5;" x-text="p.detail"></div>
+                    </div>
+                </div>
             </div>
         </template>
 
@@ -97,11 +102,10 @@
                                 <td style="padding:.65rem 1rem;white-space:nowrap;">
                                     {{-- managed / unmanaged badge --}}
                                     <template x-if="col.field === 'managed'">
-                                        <span
-                                            style="font-size:.72rem;padding:.15rem .5rem;border-radius:.35rem;"
-                                            :style="row.managed
-                                                ? 'background:rgba(34,197,94,.12);color:#4ade80;'
-                                                : 'background:rgba(255,255,255,.05);opacity:.6;'"
+                                        <span style="font-size:.72rem;padding:.15rem .5rem;border-radius:.35rem;"
+                                            :style="row.managed ?
+                                                'background:rgba(34,197,94,.12);color:#4ade80;' :
+                                                'background:rgba(255,255,255,.05);opacity:.6;'"
                                             x-text="row.managed ? 'managed' : 'observed'"></span>
                                     </template>
                                     {{-- devices chip list --}}
@@ -119,7 +123,8 @@
                                         <span>
                                             <span x-text="row.used_by"></span>
                                             <span x-show="tab === 'profiles' && row.used_by >= 10"
-                                                :title="row.used_by + ' instances inherit this profile; editing it changes all of them'"
+                                                :title="row.used_by +
+                                                    ' instances inherit this profile; editing it changes all of them'"
                                                 style="margin-left:.35rem;color:#f59e0b;">⚠ shared widely</span>
                                         </span>
                                     </template>
@@ -148,7 +153,11 @@
     <script>
         function resourcesView(clusters, pools, volumes, networks, profiles) {
             return {
-                clusters, pools, volumes, networks, profiles,
+                clusters,
+                pools,
+                volumes,
+                networks,
+                profiles,
                 tab: 'volumes',
                 search: '',
                 volType: 'custom',
@@ -157,50 +166,134 @@
                 sortField: 'name',
                 sortAsc: true,
 
-                tabs: [
-                    { key: 'volumes', label: 'Volumes' },
-                    { key: 'networks', label: 'Networks' },
-                    { key: 'profiles', label: 'Profiles' },
-                    { key: 'pools', label: 'Pools' },
+                tabs: [{
+                        key: 'volumes',
+                        label: 'Volumes'
+                    },
+                    {
+                        key: 'networks',
+                        label: 'Networks'
+                    },
+                    {
+                        key: 'profiles',
+                        label: 'Profiles'
+                    },
+                    {
+                        key: 'pools',
+                        label: 'Pools'
+                    },
                 ],
 
-                volumeTypes: [
-                    { key: 'custom', label: 'custom volumes' },
-                    { key: 'container', label: 'container root disks' },
-                    { key: 'virtual-machine', label: 'VM root disks' },
-                    { key: 'image', label: 'image cache' },
+                volumeTypes: [{
+                        key: 'custom',
+                        label: 'custom volumes'
+                    },
+                    {
+                        key: 'container',
+                        label: 'container root disks'
+                    },
+                    {
+                        key: 'virtual-machine',
+                        label: 'VM root disks'
+                    },
+                    {
+                        key: 'image',
+                        label: 'image cache'
+                    },
                 ],
 
                 columnSets: {
-                    volumes: [
-                        { field: 'name', label: 'Name' },
-                        { field: 'pool', label: 'Pool' },
-                        { field: 'type', label: 'Type' },
-                        { field: 'content_type', label: 'Content' },
-                        { field: 'node', label: 'Node' },
-                        { field: 'cluster_label', label: 'Cluster' },
-                        { field: 'used_by', label: 'Used by' },
+                    volumes: [{
+                            field: 'name',
+                            label: 'Name'
+                        },
+                        {
+                            field: 'pool',
+                            label: 'Pool'
+                        },
+                        {
+                            field: 'type',
+                            label: 'Type'
+                        },
+                        {
+                            field: 'content_type',
+                            label: 'Content'
+                        },
+                        {
+                            field: 'node',
+                            label: 'Node'
+                        },
+                        {
+                            field: 'cluster_label',
+                            label: 'Cluster'
+                        },
+                        {
+                            field: 'used_by',
+                            label: 'Used by'
+                        },
                     ],
-                    networks: [
-                        { field: 'name', label: 'Name' },
-                        { field: 'type', label: 'Type' },
-                        { field: 'managed', label: 'Managed' },
-                        { field: 'cluster_label', label: 'Cluster' },
-                        { field: 'used_by', label: 'Used by' },
+                    networks: [{
+                            field: 'name',
+                            label: 'Name'
+                        },
+                        {
+                            field: 'type',
+                            label: 'Type'
+                        },
+                        {
+                            field: 'managed',
+                            label: 'Managed'
+                        },
+                        {
+                            field: 'cluster_label',
+                            label: 'Cluster'
+                        },
+                        {
+                            field: 'used_by',
+                            label: 'Used by'
+                        },
                     ],
-                    profiles: [
-                        { field: 'name', label: 'Name' },
-                        { field: 'description', label: 'Description' },
-                        { field: 'devices', label: 'Devices' },
-                        { field: 'cluster_label', label: 'Cluster' },
-                        { field: 'used_by', label: 'Used by' },
+                    profiles: [{
+                            field: 'name',
+                            label: 'Name'
+                        },
+                        {
+                            field: 'description',
+                            label: 'Description'
+                        },
+                        {
+                            field: 'devices',
+                            label: 'Devices'
+                        },
+                        {
+                            field: 'cluster_label',
+                            label: 'Cluster'
+                        },
+                        {
+                            field: 'used_by',
+                            label: 'Used by'
+                        },
                     ],
-                    pools: [
-                        { field: 'name', label: 'Name' },
-                        { field: 'driver', label: 'Driver' },
-                        { field: 'status', label: 'Status' },
-                        { field: 'cluster_label', label: 'Cluster' },
-                        { field: 'used_by', label: 'Used by' },
+                    pools: [{
+                            field: 'name',
+                            label: 'Name'
+                        },
+                        {
+                            field: 'driver',
+                            label: 'Driver'
+                        },
+                        {
+                            field: 'status',
+                            label: 'Status'
+                        },
+                        {
+                            field: 'cluster_label',
+                            label: 'Cluster'
+                        },
+                        {
+                            field: 'used_by',
+                            label: 'Used by'
+                        },
                     ],
                 },
 
@@ -209,11 +302,21 @@
                 },
 
                 get rows() {
-                    return { volumes: this.volumes, networks: this.networks, profiles: this.profiles, pools: this.pools }[this.tab];
+                    return {
+                        volumes: this.volumes,
+                        networks: this.networks,
+                        profiles: this.profiles,
+                        pools: this.pools
+                    } [this.tab];
                 },
 
                 countFor(key) {
-                    return { volumes: this.volumes, networks: this.networks, profiles: this.profiles, pools: this.pools }[key].length;
+                    return {
+                        volumes: this.volumes,
+                        networks: this.networks,
+                        profiles: this.profiles,
+                        pools: this.pools
+                    } [key].length;
                 },
 
                 // Notices for the current tab, limited to the selected clusters
@@ -223,13 +326,13 @@
                         .filter(c => !this.selectedClusters.length || this.selectedClusters.includes(c.key))
                         .flatMap(c =>
                             (c.partial || [])
-                                .filter(p => (p.tabs || []).includes(this.tab))
-                                .map(p => ({
-                                    key: c.key + '/' + p.what,
-                                    label: c.label,
-                                    summary: p.summary || '',
-                                    detail: p.detail || '',
-                                }))
+                            .filter(p => (p.tabs || []).includes(this.tab))
+                            .map(p => ({
+                                key: c.key + '/' + p.what,
+                                label: c.label,
+                                summary: p.summary || '',
+                                detail: p.detail || '',
+                            }))
                         );
                 },
 
@@ -259,16 +362,19 @@
                         ));
                     }
 
-                    const f = this.sortField, asc = this.sortAsc ? 1 : -1;
+                    const f = this.sortField,
+                        asc = this.sortAsc ? 1 : -1;
                     return [...list].sort((a, b) => {
-                        const av = a[f] ?? '', bv = b[f] ?? '';
+                        const av = a[f] ?? '',
+                            bv = b[f] ?? '';
                         if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * asc;
                         return String(av).localeCompare(String(bv)) * asc;
                     });
                 },
 
                 get emptyMessage() {
-                    if (this.tab === 'volumes' && this.volType === 'custom' && !this.search && !this.selectedClusters.length) {
+                    if (this.tab === 'volumes' && this.volType === 'custom' && !this.search && !this.selectedClusters
+                        .length) {
                         return 'No custom volumes yet. The other volume types are instance root disks and cached images, which Incus manages through their instances. Creating a custom volume, an attachable data disk, will be the first management action on this page.';
                     }
                     return 'Nothing matches.';
@@ -292,7 +398,10 @@
                 },
 
                 sortBy(field) {
-                    if (this.sortField === field) { this.sortAsc = !this.sortAsc; return; }
+                    if (this.sortField === field) {
+                        this.sortAsc = !this.sortAsc;
+                        return;
+                    }
                     this.sortField = field;
                     this.sortAsc = true;
                 },
@@ -322,10 +431,10 @@
                 },
 
                 chipStyle(active, color) {
-                    return 'padding:.35rem .8rem;border-radius:9999px;font-size:.85rem;cursor:pointer;border:1px solid;'
-                        + (active
-                            ? 'border-color:' + color + ';background:' + color + '1a;color:' + color + ';'
-                            : 'border-color:#3f3f46;background:transparent;color:inherit;opacity:.75;');
+                    return 'padding:.35rem .8rem;border-radius:9999px;font-size:.85rem;cursor:pointer;border:1px solid;' +
+                        (active ?
+                            'border-color:' + color + ';background:' + color + '1a;color:' + color + ';' :
+                            'border-color:#3f3f46;background:transparent;color:inherit;opacity:.75;');
                 },
 
                 init() {
