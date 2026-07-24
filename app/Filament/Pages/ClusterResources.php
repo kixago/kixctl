@@ -391,6 +391,95 @@ class ClusterResources extends Page implements HasActions, HasSchemas
             });
     }
 
+    public function editProfileAction(): Action
+    {
+        return Action::make('editProfile')
+            ->label(__('resources.profiles.actions.edit'))
+            ->icon('heroicon-o-pencil')
+            ->color('gray')
+            ->visible(fn (): bool => $this->userCan('profile.update'))
+            ->modalHeading(__('resources.profiles.edit.heading'))
+            ->modalDescription(fn (array $arguments) => trans_choice(
+                'resources.profiles.edit.affects',
+                (int) ($arguments['used_by'] ?? 0),
+                ['count' => (int) ($arguments['used_by'] ?? 0)]
+            ).' '.__('resources.profiles.edit.confirm'))
+            ->modalSubmitActionLabel(__('common.actions.save'))
+            ->fillForm(function (array $arguments): array {
+                $cluster = app(ClusterRegistry::class)->find($arguments['cluster'] ?? '');
+                if (! $cluster) {
+                    return [];
+                }
+
+                try {
+                    $p = app(IncusClient::class)->profile($cluster, $arguments['name'] ?? '');
+                } catch (\Throwable $e) {
+                    report($e);
+
+                    return [];
+                }
+
+                $config = $p['config'] ?? [];
+
+                return [
+                    'description' => $p['description'] ?? '',
+                    'limits_cpu' => $config['limits.cpu'] ?? '',
+                    'limits_memory' => $config['limits.memory'] ?? '',
+                    'security_nesting' => ($config['security.nesting'] ?? '') === 'true',
+                    'boot_autostart' => ($config['boot.autostart'] ?? '') === 'true',
+                ];
+            })
+            ->schema([
+                TextInput::make('description')
+                    ->label(__('resources.profiles.edit.desc_label'))
+                    ->maxLength(255),
+                TextInput::make('limits_cpu')
+                    ->label(__('resources.profiles.edit.cpu_label'))
+                    ->helperText(__('resources.profiles.edit.cpu_helper'))
+                    ->placeholder(__('resources.profiles.edit.cpu_placeholder')),
+                TextInput::make('limits_memory')
+                    ->label(__('resources.profiles.edit.memory_label'))
+                    ->helperText(__('resources.profiles.edit.memory_helper'))
+                    ->placeholder(__('resources.profiles.edit.memory_placeholder')),
+                Toggle::make('security_nesting')
+                    ->label(__('resources.profiles.edit.nesting_label'))
+                    ->helperText(__('resources.profiles.edit.nesting_helper')),
+                Toggle::make('boot_autostart')
+                    ->label(__('resources.profiles.edit.autostart_label'))
+                    ->helperText(__('resources.profiles.edit.autostart_helper')),
+            ])
+            ->action(function (array $data, array $arguments) {
+                if (! $this->userCan('profile.update')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+
+                    return;
+                }
+                $cluster = app(ClusterRegistry::class)->find($arguments['cluster'] ?? '');
+                if (! $cluster) {
+                    return;
+                }
+                $name = $arguments['name'] ?? '';
+
+                // Only the curated keys are sent; PATCH merges them and Incus keeps
+                // every other config key and every device on the profile untouched.
+                $config = [
+                    'limits.cpu' => $data['limits_cpu'] ?? '',
+                    'limits.memory' => $data['limits_memory'] ?? '',
+                    'security.nesting' => ($data['security_nesting'] ?? false) ? 'true' : 'false',
+                    'boot.autostart' => ($data['boot_autostart'] ?? false) ? 'true' : 'false',
+                ];
+
+                try {
+                    app(IncusClient::class)->updateProfile($cluster, $name, $config, $data['description'] ?? '');
+                    Notification::make()->title(__('resources.profiles.edit.success'))->success()->send();
+                    $this->loadData();
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.profiles.edit.failed'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
     protected function userCan(string $permission): bool
     {
         /** @var User|null $user */

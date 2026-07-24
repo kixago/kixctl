@@ -152,6 +152,11 @@
                                             <template x-if="tab === 'networks' && !row.managed">
                                                 <span style="opacity:.4;font-size:.8rem;">—</span>
                                             </template>
+                                            <template x-if="tab === 'profiles'">
+                                                <button @click="$wire.mountAction('editProfile', { cluster: row.cluster, name: row.name, used_by: row.used_by })"
+                                                    style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #f59e0b66;background:#f59e0b14;color:#f59e0b;"
+                                                    x-text="@js(__('resources.profiles.actions.edit'))"></button>
+                                            </template>
                                         </span>
                                     </template>
                                     <template x-if="col.field === 'name'">
@@ -251,6 +256,7 @@
                         { field: 'devices', label: @js(__('resources.profiles.columns.devices')) },
                         { field: 'cluster_label', label: @js(__('resources.profiles.columns.cluster')) },
                         { field: 'used_by', label: @js(__('resources.profiles.columns.used_by')) },
+                        { field: 'actions', label: @js(__('common.labels.actions')) },
                     ],
                     pools: [
                         { field: 'name', label: @js(__('resources.pools.columns.name')) },
