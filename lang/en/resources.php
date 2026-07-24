@@ -111,6 +111,27 @@ return [
             'cluster' => 'Cluster',
             'used_by' => 'Used by',
         ],
+        'actions' => [
+            'edit' => 'Edit definition',
+        ],
+        'edit' => [
+            'heading' => 'Edit profile definition',
+            'affects' => '{0}No instance inherits this profile yet.|{1}This changes the definition inherited by :count instance.|[2,*]This changes the definition inherited by :count instances.',
+            'confirm' => 'Devices are left unchanged; only the settings below are edited. Are you absolutely sure?',
+            'desc_label' => 'Description',
+            'cpu_label' => 'CPU limit',
+            'cpu_helper' => 'A count or range such as 2 or 0-3. Leave blank for no limit. Containers apply it live; VMs may need a restart.',
+            'cpu_placeholder' => 'e.g. 2',
+            'memory_label' => 'Memory limit',
+            'memory_helper' => 'A size such as 4GiB or a percentage such as 25%. Leave blank for no limit.',
+            'memory_placeholder' => 'e.g. 4GiB',
+            'nesting_label' => 'Enable nesting (Docker inside)',
+            'nesting_helper' => 'Takes effect when each inheriting instance restarts.',
+            'autostart_label' => 'Start automatically on host boot',
+            'autostart_helper' => 'Applies to every inheriting instance.',
+            'success' => 'Profile updated',
+            'failed' => 'Update failed',
+        ],
     ],
     'pools' => [
         'columns' => [

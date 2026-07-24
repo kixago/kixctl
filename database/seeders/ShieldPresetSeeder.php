@@ -39,6 +39,7 @@ class ShieldPresetSeeder extends Seeder
             'network.delete',
             'profile.attach',
             'profile.detach',
+            'profile.update',
             'instance.config.update',
         ];
 

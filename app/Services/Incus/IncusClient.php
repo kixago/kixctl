@@ -181,6 +181,20 @@ class IncusClient
             ->all();
     }
 
+    public function profile(Cluster $cluster, string $name): array
+    {
+        $encoded = rawurlencode($name);
+        $p = $this->get($cluster, "/1.0/profiles/{$encoded}");
+
+        return [
+            'name' => $p['name'] ?? $name,
+            'description' => $p['description'] ?? '',
+            'config' => $p['config'] ?? [],
+            'devices' => $p['devices'] ?? [],
+            'used_by' => $p['used_by'] ?? [],
+        ];
+    }
+
     public function storagePools(Cluster $cluster): array
     {
         return collect($this->get($cluster, '/1.0/storage-pools', ['recursion' => 1]))
@@ -540,6 +554,34 @@ class IncusClient
     {
         $encoded = rawurlencode($name);
         $response = $this->request($cluster)->delete("/1.0/networks/{$encoded}");
+        $response->throw();
+    }
+
+    /**
+     * Update a profile's definition. Synchronous, like the network writes.
+     *
+     * PATCH merges: only the config keys passed here change, every other config
+     * key is preserved, and — critically — the request never carries a devices
+     * map, so Incus keeps every existing device (root disk, NIC, ...) untouched.
+     * This is verified against the profile PATCH handler, which sets the request
+     * devices to the profile's existing devices whenever the body omits them.
+     * That guarantee is what makes editing a widely-inherited profile safe: a
+     * config or description change cannot strip storage or networking from the
+     * instances that inherit it. Editing devices is deliberately out of scope
+     * here and must never be added by sending a devices map from this method.
+     */
+    public function updateProfile(Cluster $cluster, string $name, array $config = [], ?string $description = null): void
+    {
+        $encoded = rawurlencode($name);
+        $body = [];
+        if ($config !== []) {
+            $body['config'] = $config;
+        }
+        if ($description !== null) {
+            $body['description'] = $description;
+        }
+
+        $response = $this->request($cluster)->patch("/1.0/profiles/{$encoded}", $body);
         $response->throw();
     }
 
