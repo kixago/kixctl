@@ -41,6 +41,12 @@
             </div>
         </div>
 
+        <div x-show="tab === 'networks'" style="display:flex;align-items:flex-start;justify-content:flex-end;margin-bottom:1rem;">
+            <div>
+                {{ $this->createNetworkAction }}
+            </div>
+        </div>
+
         <template x-for="p in partialNotices" :key="p.key">
             <div style="margin-bottom:1rem;padding:.6rem .9rem;border:1px solid rgba(245,158,11,.4);border-radius:.5rem;background:rgba(245,158,11,.07);font-size:.85rem;">
                 <div style="display:flex;align-items:baseline;gap:.5rem;">
@@ -93,6 +99,21 @@
                                             :style="row.managed ? 'background:rgba(34,197,94,.12);color:#4ade80;' : 'background:rgba(255,255,255,.05);opacity:.6;'"
                                             x-text="row.managed ? @js(__('resources.networks.managed')) : @js(__('resources.networks.observed'))"></span>
                                     </template>
+                                    <template x-if="col.field === 'nat'">
+                                        <template x-if="row.managed">
+                                            <span style="display:inline-flex;gap:.3rem;">
+                                                <span style="font-size:.72rem;padding:.15rem .5rem;border-radius:.35rem;white-space:nowrap;"
+                                                    :style="row.ipv4_nat ? 'background:rgba(34,197,94,.12);color:#4ade80;' : 'background:rgba(255,255,255,.05);opacity:.5;'"
+                                                    x-text="row.ipv4_nat ? ('✓ ' + @js(__('resources.networks.nat.v4'))) : (@js(__('resources.networks.nat.v4')) + ' ' + @js(__('resources.networks.nat.off')))"></span>
+                                                <span style="font-size:.72rem;padding:.15rem .5rem;border-radius:.35rem;white-space:nowrap;"
+                                                    :style="row.ipv6_nat ? 'background:rgba(34,197,94,.12);color:#4ade80;' : 'background:rgba(255,255,255,.05);opacity:.5;'"
+                                                    x-text="row.ipv6_nat ? ('✓ ' + @js(__('resources.networks.nat.v6'))) : (@js(__('resources.networks.nat.v6')) + ' ' + @js(__('resources.networks.nat.off')))"></span>
+                                            </span>
+                                        </template>
+                                        <template x-if="!row.managed">
+                                            <span style="opacity:.4;font-size:.8rem;">—</span>
+                                        </template>
+                                    </template>
                                     <template x-if="col.field === 'devices'">
                                         <span style="display:inline-flex;flex-wrap:wrap;gap:.3rem;">
                                             <template x-for="d in (row.devices || [])" :key="d">
@@ -110,19 +131,51 @@
                                     </template>
                                     <template x-if="col.field === 'actions'">
                                         <span style="display:inline-flex;gap:.4rem;">
-                                            <template x-if="row.type === 'custom'">
+                                            <template x-if="tab === 'volumes' && row.type === 'custom'">
                                                 <button @click="$wire.mountAction('deleteVolume', { cluster: row.cluster, pool: row.pool, name: row.name })"
                                                     style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #ef444466;background:#ef444414;color:#ef4444;"
                                                     x-text="@js(__('common.actions.delete'))"></button>
                                             </template>
-                                            <template x-if="row.type !== 'custom'">
+                                            <template x-if="tab === 'volumes' && row.type !== 'custom'">
+                                                <span style="opacity:.4;font-size:.8rem;">—</span>
+                                            </template>
+                                            <template x-if="tab === 'networks' && row.managed">
+                                                <span style="display:inline-flex;gap:.4rem;">
+                                                    <button @click="$wire.mountAction('editNetwork', { cluster: row.cluster, name: row.name })"
+                                                        style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #f59e0b66;background:#f59e0b14;color:#f59e0b;"
+                                                        x-text="@js(__('common.actions.edit'))"></button>
+                                                    <button @click="$wire.mountAction('deleteNetwork', { cluster: row.cluster, cluster_label: row.cluster_label, name: row.name })"
+                                                        style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #ef444466;background:#ef444414;color:#ef4444;"
+                                                        x-text="@js(__('common.actions.delete'))"></button>
+                                                </span>
+                                            </template>
+                                            <template x-if="tab === 'networks' && !row.managed">
                                                 <span style="opacity:.4;font-size:.8rem;">—</span>
                                             </template>
                                         </span>
                                     </template>
-                                    <template x-if="!['managed', 'devices', 'used_by', 'actions'].includes(col.field)">
-                                        <span x-text="row[col.field] ?? ''"
-                                            :style="col.field === 'name' ? 'font-weight:600;' : 'opacity:.8;'"></span>
+                                    <template x-if="col.field === 'name'">
+                                        <span x-data="{ show: false }" style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:.15rem;">
+                                            <span style="display:inline-flex;align-items:center;gap:.35rem;">
+                                                <span x-text="row.name" style="font-weight:600;"></span>
+                                                <template x-if="row.description && tab !== 'profiles'">
+                                                    <button type="button" @click.stop="show = !show" :title="row.description"
+                                                        aria-label="{{ __('common.labels.description') }}"
+                                                        :style="'cursor:pointer;border:none;background:none;padding:0;display:inline-flex;align-items:center;line-height:1;color:' + (show ? '#f59e0b' : '#71717a') + ';'">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="width:.95rem;height:.95rem;">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+                                                        </svg>
+                                                    </button>
+                                                </template>
+                                            </span>
+                                            <template x-if="row.description && tab !== 'profiles' && show">
+                                                <span x-text="row.description"
+                                                    style="display:block;max-width:24rem;white-space:normal;font-weight:400;font-size:.78rem;line-height:1.4;opacity:.7;"></span>
+                                            </template>
+                                        </span>
+                                    </template>
+                                    <template x-if="!['managed', 'devices', 'used_by', 'actions', 'name', 'nat'].includes(col.field)">
+                                        <span x-text="row[col.field] ?? ''" style="opacity:.8;"></span>
                                     </template>
                                 </td>
                             </template>
@@ -187,8 +240,10 @@
                         { field: 'name', label: @js(__('resources.networks.columns.name')) },
                         { field: 'type', label: @js(__('resources.networks.columns.type')) },
                         { field: 'managed', label: @js(__('resources.networks.columns.managed')) },
+                        { field: 'nat', label: @js(__('resources.networks.columns.nat')) },
                         { field: 'cluster_label', label: @js(__('resources.networks.columns.cluster')) },
                         { field: 'used_by', label: @js(__('resources.networks.columns.used_by')) },
+                        { field: 'actions', label: @js(__('common.labels.actions')) },
                     ],
                     profiles: [
                         { field: 'name', label: @js(__('resources.profiles.columns.name')) },

@@ -12,6 +12,7 @@ use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Utilities\Get;
@@ -210,6 +211,182 @@ class ClusterResources extends Page implements HasActions, HasSchemas
                 } catch (\Throwable $e) {
                     report($e);
                     Notification::make()->title(__('resources.volumes.delete.failed'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    public function createNetworkAction(): Action
+    {
+        return Action::make('createNetwork')
+            ->label(__('resources.networks.actions.create'))
+            ->icon('heroicon-o-plus')
+            ->visible(fn (): bool => $this->userCan('network.create'))
+            ->modalHeading(__('resources.networks.actions.create'))
+            ->modalDescription(__('resources.networks.create.helper'))
+            ->schema([
+                Select::make('cluster')
+                    ->label(__('resources.networks.create.cluster_label'))
+                    ->options(fn () => collect($this->clusters)->where('reachable', true)->pluck('label', 'key'))
+                    ->required(),
+                TextInput::make('name')
+                    ->label(__('resources.networks.create.name_label'))
+                    ->required()
+                    ->maxLength(15)
+                    ->regex('/^[a-zA-Z][a-zA-Z0-9-]{0,14}$/')
+                    ->validationMessages(['regex' => __('resources.networks.create.name_regex')]),
+                TextInput::make('description')
+                    ->label(__('resources.networks.create.desc_label'))
+                    ->maxLength(255),
+            ])
+            ->action(function (array $data) {
+                if (! $this->userCan('network.create')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+
+                    return;
+                }
+                $cluster = app(ClusterRegistry::class)->find($data['cluster']);
+                if (! $cluster) {
+                    return;
+                }
+
+                try {
+                    app(IncusClient::class)->createNetwork($cluster, $data['name'], 'bridge', [], $data['description'] ?? null);
+                    Notification::make()->title(__('resources.networks.create.success'))->success()->send();
+                    $this->loadData();
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.networks.create.failed'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    public function editNetworkAction(): Action
+    {
+        return Action::make('editNetwork')
+            ->label(__('resources.networks.actions.edit'))
+            ->icon('heroicon-o-pencil')
+            ->color('gray')
+            ->visible(fn (): bool => $this->userCan('network.update'))
+            ->modalHeading(__('resources.networks.edit.heading'))
+            ->fillForm(function (array $arguments): array {
+                $cluster = app(ClusterRegistry::class)->find($arguments['cluster'] ?? '');
+                if (! $cluster) {
+                    return [];
+                }
+
+                try {
+                    $net = app(IncusClient::class)->network($cluster, $arguments['name'] ?? '');
+                } catch (\Throwable $e) {
+                    report($e);
+
+                    return [];
+                }
+
+                return [
+                    'description' => $net['description'] ?? '',
+                    'ipv4_nat' => ($net['config']['ipv4.nat'] ?? '') === 'true',
+                    'ipv6_nat' => ($net['config']['ipv6.nat'] ?? '') === 'true',
+                ];
+            })
+            ->schema([
+                TextInput::make('description')
+                    ->label(__('resources.networks.edit.desc_label'))
+                    ->maxLength(255),
+                Toggle::make('ipv4_nat')
+                    ->label(__('resources.networks.edit.ipv4_nat_label'))
+                    ->helperText(__('resources.networks.edit.nat_helper')),
+                Toggle::make('ipv6_nat')
+                    ->label(__('resources.networks.edit.ipv6_nat_label')),
+            ])
+            ->action(function (array $data, array $arguments) {
+                if (! $this->userCan('network.update')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+
+                    return;
+                }
+                $cluster = app(ClusterRegistry::class)->find($arguments['cluster'] ?? '');
+                if (! $cluster) {
+                    return;
+                }
+                $name = $arguments['name'] ?? '';
+
+                // Managed-only gate, verified against ground truth rather than the
+                // client-supplied row: re-read the network and refuse if it is
+                // observed (host-created), with a plain-language notice.
+                try {
+                    $net = app(IncusClient::class)->network($cluster, $name);
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.networks.edit.failed'))->body($this->cleanIncusError($e))->danger()->send();
+
+                    return;
+                }
+                if (! ($net['managed'] ?? false)) {
+                    Notification::make()->title(__('resources.networks.edit.failed'))->body(__('resources.networks.unmanaged_refused', ['name' => $name]))->danger()->send();
+
+                    return;
+                }
+
+                try {
+                    app(IncusClient::class)->updateNetwork($cluster, $name, [
+                        'ipv4.nat' => $data['ipv4_nat'] ? 'true' : 'false',
+                        'ipv6.nat' => $data['ipv6_nat'] ? 'true' : 'false',
+                    ], $data['description'] ?? '');
+                    Notification::make()->title(__('resources.networks.edit.success'))->success()->send();
+                    $this->loadData();
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.networks.edit.failed'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    public function deleteNetworkAction(): Action
+    {
+        return Action::make('deleteNetwork')
+            ->label(__('resources.networks.actions.delete'))
+            ->icon('heroicon-o-trash')
+            ->color('danger')
+            ->visible(fn (): bool => $this->userCan('network.delete'))
+            ->requiresConfirmation()
+            ->modalHeading(__('resources.networks.delete.heading'))
+            ->modalDescription(fn (array $arguments) => __('resources.networks.delete.description', [
+                'name' => $arguments['name'] ?? '',
+                'cluster' => $arguments['cluster_label'] ?? ($arguments['cluster'] ?? ''),
+            ]))
+            ->action(function (array $arguments) {
+                if (! $this->userCan('network.delete')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+
+                    return;
+                }
+                $cluster = app(ClusterRegistry::class)->find($arguments['cluster'] ?? '');
+                if (! $cluster) {
+                    return;
+                }
+                $name = $arguments['name'] ?? '';
+
+                try {
+                    $net = app(IncusClient::class)->network($cluster, $name);
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.networks.delete.failed'))->body($this->cleanIncusError($e))->danger()->send();
+
+                    return;
+                }
+                if (! ($net['managed'] ?? false)) {
+                    Notification::make()->title(__('resources.networks.delete.failed'))->body(__('resources.networks.unmanaged_refused', ['name' => $name]))->danger()->send();
+
+                    return;
+                }
+
+                try {
+                    app(IncusClient::class)->deleteNetwork($cluster, $name);
+                    Notification::make()->title(__('resources.networks.delete.success'))->success()->send();
+                    $this->loadData();
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.networks.delete.failed'))->body($this->cleanIncusError($e))->danger()->send();
                 }
             });
     }

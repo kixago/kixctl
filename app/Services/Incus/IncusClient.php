@@ -227,11 +227,30 @@ class IncusClient
                 'type' => $n['type'] ?? '',
                 'managed' => (bool) ($n['managed'] ?? false),
                 'status' => $n['status'] ?? '',
+                'description' => $n['description'] ?? '',
+                'ipv4_nat' => ($n['config']['ipv4.nat'] ?? '') === 'true',
+                'ipv6_nat' => ($n['config']['ipv6.nat'] ?? '') === 'true',
                 'used_by' => count($n['used_by'] ?? []),
             ])
             ->sortByDesc('managed')
             ->values()
             ->all();
+    }
+
+    public function network(Cluster $cluster, string $name): array
+    {
+        $encoded = rawurlencode($name);
+        $n = $this->get($cluster, "/1.0/networks/{$encoded}");
+
+        return [
+            'name' => $n['name'] ?? $name,
+            'type' => $n['type'] ?? '',
+            'managed' => (bool) ($n['managed'] ?? false),
+            'status' => $n['status'] ?? '',
+            'description' => $n['description'] ?? '',
+            'config' => $n['config'] ?? [],
+            'used_by' => count($n['used_by'] ?? []),
+        ];
     }
 
     public function createInstance(Cluster $cluster, array $payload, ?string $target = null, int $timeout = 300): void
@@ -450,6 +469,78 @@ class IncusClient
         $response = $this->request($cluster)->delete("/1.0/storage-pools/{$encodedPool}/volumes/custom/{$encodedName}");
         $response->throw();
         $this->waitForOperation($cluster, $response->json('operation'), 60);
+    }
+
+    /**
+     * Create a managed network.
+     *
+     * Network create/update/delete are synchronous in Incus: the REST call
+     * returns a standard response rather than a background operation, so unlike
+     * instance and volume writes there is no operation URL to wait on.
+     *
+     * On a clustered server a network is created in two phases — first a pending
+     * definition on every member (member-specific keys only), then a final
+     * create with no target that instantiates it cluster-wide. On a standalone
+     * server a single call is enough. A plain managed bridge carries no
+     * member-specific configuration, so the pending phase sends only the name
+     * and type, and the full configuration is applied on the final call.
+     *
+     * The description is applied as a follow-up update rather than on the create
+     * itself: on the clustered two-phase path some Incus versions (verified on
+     * 6.0.4) accept a top-level description on create but do not persist it. The
+     * follow-up update behaves identically on every version, so the description
+     * lands reliably whether the server honors it on create or not.
+     */
+    public function createNetwork(Cluster $cluster, string $name, string $type = 'bridge', array $config = [], ?string $description = null): void
+    {
+        $body = ['name' => $name, 'type' => $type];
+        if ($config !== []) {
+            $body['config'] = $config;
+        }
+
+        if ($this->topology($cluster)['enabled']) {
+            foreach ($this->members($cluster) as $member) {
+                $target = rawurlencode($member['name']);
+                $pending = $this->request($cluster)
+                    ->post("/1.0/networks?target={$target}", ['name' => $name, 'type' => $type]);
+                $pending->throw();
+            }
+        }
+
+        $response = $this->request($cluster)->post('/1.0/networks', $body);
+        $response->throw();
+
+        if ($description !== null && $description !== '') {
+            $this->updateNetwork($cluster, $name, [], $description);
+        }
+    }
+
+    /**
+     * Update a managed network. PATCH merges: only the keys passed here change,
+     * and every other setting on the network is preserved. Global configuration
+     * keys apply cluster-wide, so no target is needed. An empty config array is
+     * omitted from the request so a description-only update touches nothing else.
+     */
+    public function updateNetwork(Cluster $cluster, string $name, array $config = [], ?string $description = null): void
+    {
+        $encoded = rawurlencode($name);
+        $body = [];
+        if ($config !== []) {
+            $body['config'] = $config;
+        }
+        if ($description !== null) {
+            $body['description'] = $description;
+        }
+
+        $response = $this->request($cluster)->patch("/1.0/networks/{$encoded}", $body);
+        $response->throw();
+    }
+
+    public function deleteNetwork(Cluster $cluster, string $name): void
+    {
+        $encoded = rawurlencode($name);
+        $response = $this->request($cluster)->delete("/1.0/networks/{$encoded}");
+        $response->throw();
     }
 
     public function updateInstance(Cluster $cluster, string $name, array $payload, int $timeout = 60): void
