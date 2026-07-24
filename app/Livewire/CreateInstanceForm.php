@@ -15,54 +15,29 @@ use Livewire\Component;
 class CreateInstanceForm extends Component
 {
     public bool $open = false;
-
     public bool $showAdvanced = false;
-
     public string $clusterKey = '';
-
     public array $nodeOptions = [];
-
     public array $profileOptions = [];
-
     public string $name = '';
-
     public string $type = 'container';
-
     public string $imageScope = 'remote';
-
     public string $arch = 'amd64';
-
-    public string $imageAlias = '';       // chosen from live catalog
-
-    public string $imageCustom = '';       // used when "Custom…" selected
-
+    public string $imageAlias = '';
+    public string $imageCustom = '';
     public bool $useCustomImage = false;
-
-    public array $catalog = [];            // full parsed list
-
+    public array $catalog = [];
     public array $archOptions = [];
-
     public string $target = '';
-
     public array $profiles = ['power'];
-
     public string $limitsCpu = '';
-
     public string $limitsMemory = '';
-
     public bool $bootAutostart = true;
-
     public bool $securityNesting = false;
-
     public string $description = '';
-
     public string $rawConfig = '';
-
     public bool $startNow = true;
-
-    // --- Streaming create state (P2-C) ---
     public bool $creating = false;
-
     public string $createToken = '';
 
     public function mount(): void
@@ -107,18 +82,14 @@ class CreateInstanceForm extends Component
         }
     }
 
-    /**
-     * Images valid for the current arch AND instance type, as alias => label.
-     * Falls back to a curated shortlist if the catalog fetch failed.
-     */
     public function getImageOptionsProperty(): array
     {
         if (empty($this->catalog)) {
             return [
-                'debian/12' => 'Debian 12 (fallback)',
-                'ubuntu/24.04' => 'Ubuntu 24.04 (fallback)',
-                'alpine/3.22' => 'Alpine 3.22 (fallback)',
-                'fedora/42' => 'Fedora 42 (fallback)',
+                'debian/12' => __('instances.create.fallback_debian'),
+                'ubuntu/24.04' => __('instances.create.fallback_ubuntu'),
+                'alpine/3.22' => __('instances.create.fallback_alpine'),
+                'fedora/42' => __('instances.create.fallback_fedora'),
             ];
         }
 
@@ -131,15 +102,14 @@ class CreateInstanceForm extends Component
             ->all();
     }
 
-    /** Same filtered set, shaped for the Alpine combobox: [{alias,label,sub}]. */
     public function getImageListProperty(): array
     {
         if (empty($this->catalog)) {
             return [
-                ['alias' => 'debian/12', 'label' => 'Debian 12 (fallback)', 'sub' => 'debian/12'],
-                ['alias' => 'ubuntu/24.04', 'label' => 'Ubuntu 24.04 (fallback)', 'sub' => 'ubuntu/24.04'],
-                ['alias' => 'alpine/3.22', 'label' => 'Alpine 3.22 (fallback)', 'sub' => 'alpine/3.22'],
-                ['alias' => 'fedora/42', 'label' => 'Fedora 42 (fallback)', 'sub' => 'fedora/42'],
+                ['alias' => 'debian/12', 'label' => __('instances.create.fallback_debian'), 'sub' => 'debian/12'],
+                ['alias' => 'ubuntu/24.04', 'label' => __('instances.create.fallback_ubuntu'), 'sub' => 'ubuntu/24.04'],
+                ['alias' => 'alpine/3.22', 'label' => __('instances.create.fallback_alpine'), 'sub' => 'alpine/3.22'],
+                ['alias' => 'fedora/42', 'label' => __('instances.create.fallback_fedora'), 'sub' => 'fedora/42'],
             ];
         }
 
@@ -168,19 +138,13 @@ class CreateInstanceForm extends Component
         }
     }
 
-    /**
-     * Whether the current user holds a given permission.
-     * super_admin bypasses via Shield's gate interception.
-     */
     protected function userCan(string $permission): bool
     {
         /** @var User|null $user */
         $user = Auth::user();
-
         return $user?->can($permission) ?? false;
     }
 
-    /** For the Blade: hide the "Create instance" trigger from users who can't create. */
     public function canCreate(): bool
     {
         return $this->userCan('instance.create');
@@ -190,11 +154,10 @@ class CreateInstanceForm extends Component
     {
         if (! $this->userCan('instance.create')) {
             Notification::make()
-                ->title('Not authorized')
-                ->body('You do not have permission to create instances.')
+                ->title(__('common.notifications.unauthorized_title'))
+                ->body(__('instances.notifications.unauthorized_create'))
                 ->danger()
                 ->send();
-
             return;
         }
 
@@ -203,23 +166,21 @@ class CreateInstanceForm extends Component
             'target' => ['required'],
             'profiles' => ['required', 'array', 'min:1'],
         ], [
-            'name.regex' => 'Name may only contain letters, digits, and hyphens (no spaces, dots, or underscores).',
-            'profiles.min' => 'Pick at least one profile.',
+            'name.regex' => __('instances.validation.name_regex'),
+            'profiles.min' => __('instances.validation.profiles_min'),
         ]);
 
         $registry = app(ClusterRegistry::class);
         $cluster = $registry->find($this->clusterKey) ?? collect($registry->all())->first();
 
         if (! $cluster) {
-            Notification::make()->title('No cluster available')->danger()->send();
-
+            Notification::make()->title(__('clusters.notifications.none_available'))->danger()->send();
             return;
         }
 
         $alias = $this->useCustomImage ? trim($this->imageCustom) : trim($this->imageAlias);
         if ($alias === '') {
-            Notification::make()->title('Image required')->body('Choose or enter an image.')->danger()->send();
-
+            Notification::make()->title(__('instances.notifications.image_required_title'))->body(__('instances.notifications.image_required_body'))->danger()->send();
             return;
         }
 
@@ -271,8 +232,6 @@ class CreateInstanceForm extends Component
             $payload['description'] = $this->description;
         }
 
-        // Hand off to the streaming worker; the UI now reflects live progress
-        // via broadcasts on instance-create.{token} instead of blocking here.
         $token = (string) Str::random(24);
         $this->createToken = $token;
         $this->creating = true;
@@ -287,7 +246,6 @@ class CreateInstanceForm extends Component
         );
     }
 
-    /** Return from the progress view to a fresh, empty form. */
     public function resetCreate(): void
     {
         $this->creating = false;

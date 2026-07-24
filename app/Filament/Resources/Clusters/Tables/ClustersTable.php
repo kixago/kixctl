@@ -16,32 +16,36 @@ class ClustersTable
         return $table
             ->columns([
                 TextColumn::make('label')
-                    ->label('Cluster')
+                    ->label(__('clusters.table.label'))
                     ->searchable(),
                 TextColumn::make('key')
+                    ->label(__('clusters.table.key'))
                     ->badge()
                     ->color('gray')
                     ->searchable(),
                 TextColumn::make('driver')
+                    ->label(__('clusters.table.driver'))
                     ->badge()
                     ->searchable(),
                 TextColumn::make('url')
-                    ->label('Endpoint')
+                    ->label(__('clusters.table.endpoint'))
                     ->placeholder('—')
                     ->searchable()
                     ->toggleable(),
                 IconColumn::make('is_active')
-                    ->label('Active')
+                    ->label(__('clusters.table.active'))
                     ->boolean(),
                 IconColumn::make('verify')
-                    ->label('TLS verify')
+                    ->label(__('clusters.table.tls_verify'))
                     ->boolean()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('sort')
+                    ->label(__('clusters.table.sort'))
                     ->numeric()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('created_at')
+                    ->label(__('clusters.table.created_at'))
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),

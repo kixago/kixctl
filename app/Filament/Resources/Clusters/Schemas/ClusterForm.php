@@ -17,44 +17,44 @@ class ClusterForm
         return $schema
             ->components([
                 TextInput::make('key')
-                    ->label('Key')
+                    ->label(__('clusters.form.key'))
                     ->required()
                     ->unique(ignoreRecord: true)
                     ->dehydrateStateUsing(fn (?string $state) => $state ? strtolower(trim($state)) : $state)
-                    ->helperText('Stable lowercase identifier, e.g. "acme". Used in URLs and broadcast channels — avoid changing later.'),
+                    ->helperText(__('clusters.form.key_helper')),
 
                 TextInput::make('label')
-                    ->label('Label')
+                    ->label(__('clusters.form.label'))
                     ->required()
-                    ->helperText('Human-friendly name shown on the dashboard chip.'),
+                    ->helperText(__('clusters.form.label_helper')),
 
                 Select::make('driver')
-                    ->label('Driver')
+                    ->label(__('clusters.form.driver'))
                     ->required()
                     ->live()
                     ->default('https')
                     ->options([
-                        'https' => 'HTTPS (remote, client certificate)',
-                        'socket' => 'Unix socket (local, break-glass)',
+                        'https' => __('clusters.form.driver_https'),
+                        'socket' => __('clusters.form.driver_socket'),
                     ])
-                    ->helperText('Remote/customer clusters are always HTTPS. Socket is local-only.'),
+                    ->helperText(__('clusters.form.driver_helper')),
 
                 TextInput::make('url')
-                    ->label('API URL')
+                    ->label(__('clusters.form.url'))
                     ->url()
                     ->visible(fn (Get $get) => $get('driver') === 'https')
                     ->required(fn (Get $get) => $get('driver') === 'https')
-                    ->placeholder('https://10.0.0.5:8443')
-                    ->helperText('The cluster’s Incus HTTPS API endpoint.'),
+                    ->placeholder(__('clusters.form.url_placeholder'))
+                    ->helperText(__('clusters.form.url_helper')),
 
                 TextInput::make('socket')
-                    ->label('Socket path')
+                    ->label(__('clusters.form.socket'))
                     ->visible(fn (Get $get) => $get('driver') === 'socket')
                     ->required(fn (Get $get) => $get('driver') === 'socket')
-                    ->placeholder('/var/lib/incus/unix.socket'),
+                    ->placeholder(__('clusters.form.socket_placeholder')),
 
                 Textarea::make('client_cert')
-                    ->label('Client certificate (PEM)')
+                    ->label(__('clusters.form.client_cert'))
                     ->rows(6)
                     ->columnSpanFull()
                     ->visible(fn (Get $get) => $get('driver') === 'https')
@@ -62,14 +62,14 @@ class ClusterForm
                     ->dehydrated(fn (?string $state) => filled($state))
                     ->afterStateHydrated(fn (Textarea $component) => $component->state(''))
                     ->placeholder(fn (string $operation) => $operation === 'edit'
-                        ? 'Stored — leave blank to keep the current certificate'
+                        ? __('clusters.form.client_cert_keep')
                         : null)
                     ->helperText(fn (string $operation, ?ClusterRecord $record) => $operation === 'edit'
-                        ? (self::storedCertSummary($record) ?? 'No certificate stored.').' Leave blank to keep it, or paste a new PEM to replace it.'
-                        : 'Paste the PEM.'),
+                        ? __('clusters.form.client_cert_replace', ['summary' => self::storedCertSummary($record)])
+                        : __('clusters.form.client_cert_paste')),
 
                 Textarea::make('client_key')
-                    ->label('Client key (PEM)')
+                    ->label(__('clusters.form.client_key'))
                     ->rows(6)
                     ->columnSpanFull()
                     ->visible(fn (Get $get) => $get('driver') === 'https')
@@ -77,40 +77,34 @@ class ClusterForm
                     ->dehydrated(fn (?string $state) => filled($state))
                     ->afterStateHydrated(fn (Textarea $component) => $component->state(''))
                     ->placeholder(fn (string $operation) => $operation === 'edit'
-                        ? '•••••• stored encrypted — never displayed'
+                        ? __('clusters.form.client_key_placeholder')
                         : null)
                     ->helperText(fn (string $operation) => $operation === 'edit'
-                        ? 'A private key is stored encrypted and is never displayed here. Leave blank to keep it, or paste a new PEM to replace it.'
-                        : 'Paste the PEM private key. Stored encrypted.'),
+                        ? __('clusters.form.client_key_replace')
+                        : __('clusters.form.client_key_paste')),
 
                 Toggle::make('verify')
-                    ->label('Verify TLS certificate')
+                    ->label(__('clusters.form.verify'))
                     ->default(false)
                     ->visible(fn (Get $get) => $get('driver') === 'https')
-                    ->helperText('Off for self-signed cluster certs (typical).'),
+                    ->helperText(__('clusters.form.verify_helper')),
 
                 Toggle::make('is_active')
-                    ->label('Active')
+                    ->label(__('clusters.form.is_active'))
                     ->default(true)
-                    ->helperText('Inactive clusters are hidden from the dashboard.'),
+                    ->helperText(__('clusters.form.is_active_helper')),
 
                 TextInput::make('sort')
-                    ->label('Sort order')
+                    ->label(__('clusters.form.sort'))
                     ->numeric()
                     ->default(0)
-                    ->helperText('Lower numbers appear first.'),
+                    ->helperText(__('clusters.form.sort_helper')),
             ]);
     }
 
-    /**
-     * A safe, reassuring summary of the STORED certificate for the edit
-     * form: fingerprint + expiry (a certificate is public material — this
-     * proves "we still have it" without ever echoing the PEM back, and
-     * the private key is never summarized at all).
-     */
     private static function storedCertSummary(?ClusterRecord $record): ?string
     {
-        $pem = $record?->client_cert; // encrypted cast decrypts on read
+        $pem = $record?->client_cert;
 
         if (! $pem) {
             return null;
@@ -119,7 +113,7 @@ class ClusterForm
         $fingerprint = @openssl_x509_fingerprint($pem, 'sha256');
 
         if ($fingerprint === false) {
-            return 'A certificate is stored encrypted.';
+            return __('clusters.form.cert_summary_encrypted');
         }
 
         $parsed = @openssl_x509_parse($pem);
@@ -127,7 +121,13 @@ class ClusterForm
             ? gmdate('Y-m-d', $parsed['validTo_time_t'])
             : null;
 
-        return 'A certificate is stored (SHA-256 …'.substr($fingerprint, -8).')'
-            .($expires ? ", expires {$expires}." : '.');
+        $msg = __('clusters.form.cert_summary_parsed', ['fingerprint' => substr($fingerprint, -8)]);
+        if ($expires) {
+            $msg .= __('clusters.form.cert_summary_expires', ['expires' => $expires]);
+        } else {
+            $msg .= '.';
+        }
+
+        return $msg;
     }
 }

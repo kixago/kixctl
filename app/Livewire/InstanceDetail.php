@@ -9,7 +9,9 @@ use App\Services\Incus\IncusClient;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
@@ -24,36 +26,21 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
     use InteractsWithSchemas;
 
     public bool $open = false;
-
     public string $cluster = '';
-
     public string $name = '';
-
     public array $detail = [];
-
     public array $snapshots = [];
-
     public array $config = [];
-
-    // --- Logs (P2-A) ---
     public array $logFiles = [];
-
     public string $selectedLogFile = '';
-
     public string $logContent = '';
-
     public string $consoleContent = '';
-
     public bool $consoleLoaded = false;
-
-    public string $logView = 'files'; // 'files' | 'console'
-
-    // --- Streaming snapshot-op state (P2-C tail) ---
+    public string $logView = 'files';
     public string $opToken = '';
-
-    public string $opKind = '';   // 'create-snapshot' | 'restore-snapshot' | 'delete-snapshot'
-
-    public string $opLabel = '';  // human heading shown while the op runs
+    public string $opKind = '';
+    public string $opLabel = '';
+    public string $deleteTarget = '';
 
     #[On('open-instance-detail')]
     public function openFor(string $cluster, string $name): void
@@ -61,16 +48,12 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         $this->cluster = $cluster;
         $this->name = $name;
         $this->open = true;
-
-        // Reset log state for the newly opened instance.
         $this->logFiles = [];
         $this->selectedLogFile = '';
         $this->logContent = '';
         $this->consoleContent = '';
         $this->consoleLoaded = false;
         $this->logView = 'files';
-
-        // Clear any stale streaming-op state from a previous instance.
         $this->opToken = '';
         $this->opKind = '';
         $this->opLabel = '';
@@ -94,8 +77,6 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         $this->snapshots = $incus->snapshots($target, $this->name);
         $this->config = $incus->instanceConfig($target, $this->name);
 
-        // Log file list is cheap; load it and auto-open the first file so the
-        // Logs → Files pane isn't empty on open. File contents are capped in the client.
         try {
             $this->logFiles = $incus->instanceLogs($target, $this->name);
         } catch (\Throwable $_e) {
@@ -111,29 +92,24 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         return app(ClusterRegistry::class)->find($this->cluster);
     }
 
-    // --- Logs: tab switching + content loading (read-only; no permission gate) ---
-
-    /** Switch to the Files tab. */
     public function showFiles(): void
     {
         $this->logView = 'files';
     }
 
-    /** Load and show one log file's contents. */
     public function viewLogFile(string $file): void
     {
         $this->logView = 'files';
         $this->selectedLogFile = $file;
         try {
-            $this->logContent = app(IncusClient::class)
-                ->instanceLogFile($this->target(), $this->name, $file);
+            $this->logContent = app(IncusClient::class)->instanceLogFile($this->target(), $this->name, $file);
         } catch (\Throwable $e) {
             $this->logContent = '';
-            Notification::make()->title('Could not load log')->body($e->getMessage())->danger()->send();
+            report($e);
+            Notification::make()->title(__('instances.notifications.log_load_failed_title'))->body($this->cleanIncusError($e))->danger()->send();
         }
     }
 
-    /** Switch to the Console tab, lazily loading the cleaned buffer once. */
     public function showConsole(): void
     {
         $this->logView = 'console';
@@ -149,7 +125,6 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         $this->consoleLoaded = true;
     }
 
-    /** Re-pull whichever log surface is currently in view. */
     public function refreshLogs(): void
     {
         if ($this->logView === 'console') {
@@ -160,37 +135,19 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         }
     }
 
-    /**
-     * Strip ANSI/VT escape sequences and control noise from a console buffer,
-     * leaving readable text. VGA boot menus (cursor-positioned) come out sparse
-     * — that's inherent — but serial/kernel output comes out clean.
-     */
     protected function cleanConsole(string $raw): string
     {
-        // Strip escape sequences: OSC (…BEL/ST), CSI (…final byte),
-        // charset-selects, and misc single-char ESC codes.
         $s = preg_replace('/\e\][^\x07\e]*(?:\x07|\e\\\\)/', '', $raw);
         $s = preg_replace('/\e[\[\?][0-9;]*[ -\/]*[@-~]/', '', $s);
         $s = preg_replace('/\e[()][0-9A-Za-z]/', '', $s);
         $s = preg_replace('/\e[=>78HMc]/', '', $s);
-
-        // Normalize newlines, then drop remaining control chars (keep tab + newline).
         $s = str_replace(["\r\n", "\r"], "\n", $s);
         $s = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $s);
-
-        // Tidy: trailing spaces and long runs of blank lines.
         $s = preg_replace('/[ \t]+\n/', "\n", $s);
         $s = preg_replace('/\n{3,}/', "\n\n", $s);
-
         return trim($s);
     }
 
-    /**
-     * Hand a snapshot op to the Horizon worker and flip the slide-over into its
-     * live-progress state. The worker broadcasts on instance-op.{token}; the
-     * Alpine island in the blade renders it. The permission re-check and any
-     * type-the-name guard live in the calling action, NOT here.
-     */
     protected function launchOp(string $op, string $snapshotName, string $label): void
     {
         $token = (string) Str::random(24);
@@ -208,17 +165,15 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         );
     }
 
-    /** Island calls this on a `done` broadcast: refresh live state, fan out, clear. */
     public function completeOp(): void
     {
         $this->opToken = '';
         $this->opKind = '';
         $this->opLabel = '';
         $this->refreshData();
-        $this->dispatch('instance-changed'); // tell the fleet table to reload
+        $this->dispatch('instance-changed');
     }
 
-    /** Island calls this to dismiss a terminal (failed) op without refreshing. */
     public function dismissOp(): void
     {
         $this->opToken = '';
@@ -226,130 +181,283 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
         $this->opLabel = '';
     }
 
-    /** Create snapshot — soft confirm (non-destructive). Streams via the worker. */
+    public function renameInstanceAction(): Action
+    {
+        return Action::make('renameInstance')
+            ->label(__('instances.actions.rename_instance'))
+            ->icon('heroicon-o-pencil')
+            ->color('gray')
+            ->visible(fn (): bool => $this->userCan('instance.rename'))
+            ->modalHeading(__('instances.detail.rename.heading'))
+            ->fillForm(fn () => ['new_name' => $this->name])
+            ->schema([
+                TextInput::make('new_name')
+                    ->label(__('instances.detail.rename.new_name_label'))
+                    ->required()
+                    ->maxLength(64)
+                    ->regex('/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/')
+                    ->validationMessages(['regex' => __('instances.validation.name_regex')]),
+            ])
+            ->action(function (array $data) {
+                if (! $this->userCan('instance.rename')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_rename'))->danger()->send();
+                    return;
+                }
+                if ($data['new_name'] === $this->name) {
+                    return;
+                }
+
+                try {
+                    app(IncusClient::class)->renameInstance($this->target(), $this->name, $data['new_name']);
+                    Notification::make()->title(__('instances.notifications.instance_renamed_title'))->success()->send();
+
+                    $this->name = $data['new_name'];
+                    $this->refreshData();
+                    $this->dispatch('instance-changed');
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('instances.notifications.rename_failed_title'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    public function editConfigAction(): Action
+    {
+        return Action::make('editConfig')
+            ->label(__('common.actions.edit'))
+            ->icon('heroicon-m-cog-8-tooth')
+            ->iconButton()
+            ->size('sm')
+            ->color('gray')
+            ->visible(fn (): bool => $this->userCan('instance.config.update'))
+            ->modalHeading(__('instances.detail.config.edit_heading'))
+            ->fillForm(function () {
+                $local = $this->detail['config'] ?? [];
+                return [
+                    'limits_cpu' => $local['limits.cpu'] ?? '',
+                    'limits_memory' => $local['limits.memory'] ?? '',
+                    'security_nesting' => ($local['security.nesting'] ?? '') === 'true',
+                    'boot_autostart' => ($local['boot.autostart'] ?? '') === 'true',
+                ];
+            })
+            ->schema([
+                TextInput::make('limits_cpu')
+                    ->label(__('instances.create.cpu_limit_label'))
+                    ->helperText(__('instances.detail.config.cpu_helper'))
+                    ->placeholder('e.g. 2'),
+                TextInput::make('limits_memory')
+                    ->label(__('instances.create.memory_limit_label'))
+                    ->helperText(__('instances.detail.config.memory_helper'))
+                    ->placeholder('e.g. 4GiB'),
+                Toggle::make('security_nesting')
+                    ->label(__('instances.create.security_nesting_label'))
+                    ->helperText(__('instances.detail.config.nesting_helper')),
+                Toggle::make('boot_autostart')
+                    ->label(__('instances.create.boot_autostart_label'))
+                    ->helperText(__('instances.detail.config.boot_helper')),
+                Toggle::make('restart_now')
+                    ->label(__('instances.detail.config.restart_now'))
+                    ->helperText(__('instances.detail.config.restart_now_helper'))
+                    ->dehydrated(false)
+            ])
+            ->action(function (array $data) {
+                if (! $this->userCan('instance.config.update')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+                    return;
+                }
+
+                $patch = [
+                    'config' => [
+                        'limits.cpu' => $data['limits_cpu'] ?? '',
+                        'limits.memory' => $data['limits_memory'] ?? '',
+                        'security.nesting' => $data['security_nesting'] ? 'true' : 'false',
+                        'boot.autostart' => $data['boot_autostart'] ? 'true' : 'false',
+                    ]
+                ];
+
+                try {
+                    app(IncusClient::class)->updateInstance($this->target(), $this->name, $patch);
+                    Notification::make()->title(__('instances.notifications.config_updated_title'))->success()->send();
+
+                    if ($data['restart_now'] ?? false) {
+                        $this->launchOp('restart', '', __('instances.notifications.restarting_to_apply'));
+                    } else {
+                        $this->refreshData();
+                        $this->dispatch('instance-changed');
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('instances.notifications.update_failed_title'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    public function editProfilesAction(): Action
+    {
+        return Action::make('editProfiles')
+            ->label(__('common.actions.edit'))
+            ->icon('heroicon-m-pencil-square')
+            ->iconButton()
+            ->size('sm')
+            ->color('gray')
+            ->visible(fn (): bool => $this->userCan('instance.profile.update'))
+            ->modalHeading(__('instances.detail.profiles.heading'))
+            ->fillForm(fn (): array => [
+                'profiles' => data_get($this->config, 'profiles', []),
+            ])
+            ->schema([
+                Select::make('profiles')
+                    ->label(__('instances.detail.profiles.heading'))
+                    ->multiple()
+                    ->options(function () {
+                        try {
+                            $cluster = $this->target();
+                            if (!$cluster) return [];
+                            return collect(app(IncusClient::class)->profiles($cluster))
+                                ->mapWithKeys(fn($p) => [$p => $p])
+                                ->all();
+                        } catch (\Throwable $e) {
+                            return [];
+                        }
+                    })
+                    ->required()
+                    ->minItems(1)
+                    ->helperText(__('instances.detail.profiles.edit_helper')),
+            ])
+            ->action(function (array $data) {
+                if (! $this->userCan('instance.profile.update')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+                    return;
+                }
+
+                try {
+                    app(IncusClient::class)->updateInstance($this->target(), $this->name, [
+                        'profiles' => array_values($data['profiles']),
+                    ]);
+                    Notification::make()->title(__('instances.notifications.profiles_updated_title'))->success()->send();
+                    $this->refreshData();
+                    $this->dispatch('instance-changed');
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('instances.notifications.update_failed_title'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
     public function createSnapshotAction(): Action
     {
         return Action::make('createSnapshot')
-            ->label('New snapshot')
+            ->label(__('instances.actions.create_snapshot'))
             ->icon('heroicon-o-camera')
             ->color('primary')
             ->visible(fn (): bool => $this->userCan('snapshot.create'))
             ->schema([
                 TextInput::make('snapshot')
-                    ->label('Snapshot name')
+                    ->label(__('common.labels.name'))
                     ->default(fn () => $this->name.'-'.now()->format('Ymd-His'))
                     ->required()
                     ->maxLength(64),
             ])
             ->action(function (array $data) {
                 if (! $this->userCan('snapshot.create')) {
-                    Notification::make()->title('Not authorized')->body('You do not have permission to create snapshots.')->danger()->send();
-
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_snapshot_create'))->danger()->send();
                     return;
                 }
-
                 $this->launchOp(
                     'create-snapshot',
                     $data['snapshot'],
-                    'Creating snapshot “'.$data['snapshot'].'”…',
+                    __('instances.notifications.creating_snapshot', ['snapshot' => $data['snapshot']])
                 );
             });
     }
 
-    /** Restore — STRONG guard: type the instance name. Destructive. Streams via the worker. */
     public function restoreAction(): Action
     {
         return Action::make('restore')
-            ->label('Restore')
+            ->label(__('instances.actions.restore_snapshot'))
             ->icon('heroicon-o-arrow-uturn-left')
             ->color('warning')
             ->visible(fn (): bool => $this->userCan('snapshot.restore'))
             ->requiresConfirmation()
-            ->modalHeading('Restore snapshot')
-            ->modalDescription(fn (array $arguments) => "This reverts “{$this->name}” entirely to snapshot “{$arguments['snapshot']}”, including its data. This cannot be undone.")
+            ->modalHeading(__('instances.detail.modals.restore_heading'))
+            ->modalDescription(fn (array $arguments) => __('instances.detail.modals.restore_description', ['name' => $this->name, 'snapshot' => $arguments['snapshot']]))
             ->schema([
                 TextInput::make('confirm')
-                    ->label("Type the instance name (“{$this->name}”) to confirm")
+                    ->label(__('instances.detail.modals.confirm_instance_prompt', ['name' => $this->name]))
                     ->required()
                     ->rule(fn () => function ($_attr, $value, $fail) {
                         if ($value !== $this->name) {
-                            $fail('Name does not match.');
+                            $fail(__('instances.validation.name_mismatch'));
                         }
                     }),
             ])
             ->action(function (array $arguments) {
                 if (! $this->userCan('snapshot.restore')) {
-                    Notification::make()->title('Not authorized')->body('You do not have permission to restore snapshots.')->danger()->send();
-
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_snapshot_restore'))->danger()->send();
                     return;
                 }
-
                 $this->launchOp(
                     'restore-snapshot',
                     $arguments['snapshot'],
-                    'Restoring “'.$this->name.'” from “'.$arguments['snapshot'].'”…',
+                    __('instances.notifications.restoring_snapshot', ['name' => $this->name, 'snapshot' => $arguments['snapshot']])
                 );
             });
     }
 
-    /** Delete the whole instance — STRONG guard: type the instance name. Destructive. */
     public function deleteInstanceAction(): Action
     {
         return Action::make('deleteInstance')
-            ->label('Delete instance')
+            ->label(__('instances.actions.delete_instance'))
             ->icon('heroicon-o-trash')
             ->color('danger')
             ->visible(fn (): bool => $this->userCan('instance.delete'))
             ->requiresConfirmation()
-            ->modalHeading('Delete instance')
-            ->modalDescription(fn () => "This permanently deletes “{$this->name}” and its root filesystem. Attached volumes that persist are not removed. This cannot be undone.")
+            ->modalHeading(__('instances.detail.modals.delete_instance_heading'))
+            ->modalDescription(fn () => __('instances.detail.modals.delete_instance_description', ['name' => $this->name]))
             ->schema([
                 TextInput::make('confirm')
-                    ->label("Type the instance name (“{$this->name}”) to confirm")
+                    ->label(__('instances.detail.modals.confirm_instance_prompt', ['name' => $this->name]))
                     ->required()
                     ->rule(fn () => function ($_attr, $value, $fail) {
                         if ($value !== $this->name) {
-                            $fail('Name does not match.');
+                            $fail(__('instances.validation.name_mismatch'));
                         }
                     }),
             ])
             ->action(function () {
                 if (! $this->userCan('instance.delete')) {
-                    Notification::make()->title('Not authorized')->body('You do not have permission to delete instances.')->danger()->send();
-
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_delete'))->danger()->send();
                     return;
                 }
                 try {
                     app(IncusClient::class)->deleteInstance($this->target(), $this->name);
-                    Notification::make()->title('Instance deleted')->body($this->name)->success()->send();
-                    $this->open = false;               // close the panel
-                    $this->dispatch('instance-changed'); // table re-pulls; the row disappears
+                    Notification::make()->title(__('instances.notifications.instance_deleted_title'))->body($this->name)->success()->send();
+                    $this->open = false;
+                    $this->dispatch('instance-changed');
                 } catch (\Throwable $e) {
-                    Notification::make()->title('Delete failed')->body($e->getMessage())->danger()->send();
+                    report($e);
+                    Notification::make()->title(__('instances.notifications.delete_failed_title'))->body($this->cleanIncusError($e))->danger()->send();
                 }
             });
     }
 
-    public string $deleteTarget = '';
-
-    /** Delete snapshot — STRONG guard: type the snapshot name. */
     public function deleteSnapshotAction(): Action
     {
         return Action::make('deleteSnapshot')
-            ->label('Delete')
+            ->label(__('instances.actions.delete_snapshot'))
             ->icon('heroicon-o-trash')
             ->color('danger')
             ->visible(fn (): bool => $this->userCan('snapshot.delete'))
             ->requiresConfirmation()
-            ->modalHeading('Delete snapshot')
+            ->modalHeading(__('instances.detail.modals.delete_snapshot_heading'))
             ->mountUsing(fn (array $arguments) => $this->deleteTarget = $arguments['snapshot'] ?? '')
             ->schema([
                 TextInput::make('confirm')
-                    ->label('Type the snapshot name to confirm')
+                    ->label(__('instances.detail.modals.confirm_snapshot_prompt'))
                     ->required()
                     ->rule(fn () => function ($_attribute, $value, $fail) {
                         if ($value !== $this->deleteTarget) {
-                            $fail('Name does not match.');
+                            $fail(__('instances.validation.name_mismatch'));
                         }
                     }),
             ])
@@ -359,28 +467,31 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
     protected function deleteConfirmed(): void
     {
         if (! $this->userCan('snapshot.delete')) {
-            Notification::make()->title('Not authorized')->body('You do not have permission to delete snapshots.')->danger()->send();
-
+            Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_snapshot_delete'))->danger()->send();
             return;
         }
 
         $this->launchOp(
             'delete-snapshot',
             $this->deleteTarget,
-            'Deleting snapshot “'.$this->deleteTarget.'”…',
+            __('instances.notifications.deleting_snapshot', ['snapshot' => $this->deleteTarget])
         );
     }
 
-    /**
-     * Whether the current user holds a given permission.
-     * super_admin bypasses via Shield's gate interception.
-     */
     protected function userCan(string $permission): bool
     {
         /** @var User|null $user */
         $user = Auth::user();
-
         return $user?->can($permission) ?? false;
+    }
+
+    protected function cleanIncusError(\Throwable $e): string
+    {
+        $message = $e->getMessage();
+        if (preg_match('/"error"\s*:\s*"([^"]+)"/', $message, $m)) {
+            return $m[1];
+        }
+        return \Illuminate\Support\Str::limit(strtok($message, "\n"), 120);
     }
 
     public function render()

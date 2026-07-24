@@ -16,4 +16,15 @@ class EditCluster extends EditRecord
             DeleteAction::make(),
         ];
     }
+
+    protected function afterSave(): void
+    {
+        ClusterResource::runScopeCheck($this->record);
+    }
+
+    protected function getRedirectUrl(): ?string
+    {
+        // Null keeps them on the edit page so the persistent notification is visible
+        return null;
+    }
 }

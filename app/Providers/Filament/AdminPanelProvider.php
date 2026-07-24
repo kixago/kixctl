@@ -40,7 +40,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->userMenuItems([
                 Action::make('roles')
-                    ->label('Roles & Permissions')
+                    ->label(__('common.labels.roles_permissions'))
                     ->icon('heroicon-o-shield-check')
                     ->url(fn (): string => RoleResource::getUrl('index'))
                     ->visible(function (): bool {

@@ -15,7 +15,6 @@ class ClusterOverview extends Widget
 
     protected static ?int $sort = -1;
 
-    // Live refresh. Bump to '60s' or set null to disable.
     protected static ?string $pollingInterval = '30s';
 
     protected function getViewData(): array
@@ -30,13 +29,10 @@ class ClusterOverview extends Widget
         $labels = [];
         $errors = [];
 
-        // NOTE: assumes ClusterRegistry::all() returns an iterable of Cluster.
-        // If yours exposes clusters()/each() instead, change ONLY this line.
         foreach ($registry->all() as $cluster) {
             $labels[] = $cluster->label;
             try {
                 foreach ($client->members($cluster) as $m) {
-                    // Fetch live resource state per node; tolerate individual failures.
                     try {
                         $m['state'] = $client->memberState($cluster, $m['name']);
                     } catch (\Throwable $_e) {
@@ -48,7 +44,7 @@ class ClusterOverview extends Widget
                     $instances[] = $i;
                 }
             } catch (\Throwable $e) {
-                $errors[] = $cluster->label;
+                $errors[] = $cluster->label . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ' - ' . $e->getMessage() . ')';
             }
         }
 
@@ -113,7 +109,7 @@ class ClusterOverview extends Widget
             'nodesTotal'  => $nodesTotal,
             'nodesOnline' => $nodesOnline,
             'nodeCards'   => $nodeCards,
-            'label'       => count($labels) === 1 ? $labels[0] : count($labels) . ' clusters',
+            'label'       => count($labels) === 1 ? $labels[0] : trans_choice('clusters.overview.total_clusters', count($labels), ['count' => count($labels)]),
             'errors'      => $errors,
             'generatedAt' => now()->format('H:i:s'),
         ];

@@ -2,21 +2,32 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\User;
 use App\Services\Incus\Cluster;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
 use BackedEnum;
+use Filament\Actions\Action;
+use Filament\Actions\Concerns\InteractsWithActions;
+use Filament\Actions\Contracts\HasActions;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Concerns\InteractsWithSchemas;
+use Filament\Schemas\Contracts\HasSchemas;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
-class ClusterResources extends Page
+class ClusterResources extends Page implements HasActions, HasSchemas
 {
+    use InteractsWithActions;
+    use InteractsWithSchemas;
+
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCircleStack;
-
-    protected static ?string $navigationLabel = 'Resources';
-
-    protected static ?string $title = 'Resources';
 
     protected string $view = 'filament.pages.cluster-resources';
 
@@ -29,6 +40,23 @@ class ClusterResources extends Page
     public array $networks = [];
 
     public array $profiles = [];
+
+    // Properties for the delete volume action state
+    public string $deleteTargetName = '';
+
+    public string $deleteTargetPool = '';
+
+    public string $deleteTargetCluster = '';
+
+    public static function getNavigationLabel(): string
+    {
+        return __('resources.title');
+    }
+
+    public function getTitle(): string|Htmlable
+    {
+        return __('resources.title');
+    }
 
     public function mount(): void
     {
@@ -53,53 +81,33 @@ class ClusterResources extends Page
                 'reachable' => true,
                 'error' => null,
                 'version' => null,
-                // Resource types this cluster could not serve. Each affects its
-                // own tab; a denied read never marks the whole cluster down.
-                // Entries carry: what / tabs / summary (one line) / detail
-                // (expanded explanation).
                 'partial' => [],
             ];
 
-            // Reachability check, same bar as the Instances page. Also records
-            // the server version; /1.0 is readable under a restricted
-            // certificate, so this works for every cluster we can reach at all.
             try {
                 $info = $incus->serverInfo($cluster);
                 $entry['version'] = $info['server_version'] ?? null;
             } catch (\Throwable $e) {
                 report($e);
-
                 $entry['reachable'] = false;
-                $entry['error'] = $this->cleanIncusError($e->getMessage());
+                $entry['error'] = $this->cleanIncusError($e);
                 $this->clusters[] = $entry;
 
                 continue;
             }
 
-            // Each resource type loads independently. Results are computed into
-            // locals and merged only on success, so a failure leaves no
-            // half-loaded state.
-            $pools = $this->tryLoad($entry, $cluster, 'storage pools and volumes', ['volumes', 'pools'],
-                fn () => $incus->storagePools($cluster));
-
+            $pools = $this->tryLoad($entry, $cluster, 'volumes', ['volumes', 'pools'], fn () => $incus->storagePools($cluster));
             $volumes = [];
             foreach ($pools as $pool) {
-                // One broken pool is logged and skipped; the rest still load.
                 try {
-                    $volumes = array_merge(
-                        $volumes,
-                        $incus->storageVolumes($cluster, $pool['name'])
-                    );
+                    $volumes = array_merge($volumes, $incus->storageVolumes($cluster, $pool['name']));
                 } catch (\Throwable $e) {
                     report($e);
                 }
             }
 
-            $networks = $this->tryLoad($entry, $cluster, 'networks', ['networks'],
-                fn () => $incus->networks($cluster));
-
-            $profiles = $this->tryLoad($entry, $cluster, 'profiles', ['profiles'],
-                fn () => $incus->profilesFull($cluster));
+            $networks = $this->tryLoad($entry, $cluster, 'networks', ['networks'], fn () => $incus->networks($cluster));
+            $profiles = $this->tryLoad($entry, $cluster, 'profiles', ['profiles'], fn () => $incus->profilesFull($cluster));
 
             $this->pools = array_merge($this->pools, $pools);
             $this->volumes = array_merge($this->volumes, $volumes);
@@ -109,29 +117,132 @@ class ClusterResources extends Page
             $this->clusters[] = $entry;
         }
 
-        // Browser event; Alpine pulls the fresh data. The wire:ignore root is
-        // never re-rendered by Livewire, so this event is the only data path.
         $this->dispatch('resources-changed');
     }
 
-    /**
-     * Run one resource-type read in isolation. On failure the error is logged,
-     * a notice is recorded against the cluster for the affected tabs, and an
-     * empty list is returned so the rest of the page loads normally.
-     */
-    private function tryLoad(array &$entry, Cluster $cluster, string $what, array $tabs, \Closure $fn): array
+    public function createVolumeAction(): Action
+    {
+        return Action::make('createVolume')
+            ->label(__('resources.volumes.actions.create'))
+            ->icon('heroicon-o-plus')
+            ->visible(fn (): bool => $this->userCan('volume.create'))
+            ->schema([
+                Select::make('cluster')
+                    ->label(__('resources.volumes.create.cluster_label'))
+                    ->options(fn () => collect($this->clusters)->where('reachable', true)->pluck('label', 'key'))
+                    ->live()
+                    ->required(),
+                Select::make('pool')
+                    ->label(__('resources.volumes.create.pool_label'))
+                    ->options(function (Get $get) {
+                        if (! $get('cluster')) {
+                            return [];
+                        }
+
+                        return collect($this->pools)->where('cluster', $get('cluster'))->pluck('name', 'name');
+                    })
+                    ->required(),
+                TextInput::make('name')
+                    ->label(__('resources.volumes.create.name_label'))
+                    ->required()
+                    ->maxLength(64)
+                    ->regex('/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/')
+                    ->validationMessages(['regex' => __('resources.volumes.create.name_regex')]),
+                TextInput::make('description')
+                    ->label(__('resources.volumes.create.desc_label'))
+                    ->maxLength(255),
+            ])
+            ->action(function (array $data) {
+                if (! $this->userCan('volume.create')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+
+                    return;
+                }
+                $cluster = app(ClusterRegistry::class)->find($data['cluster']);
+                if (! $cluster) {
+                    return;
+                }
+
+                try {
+                    app(IncusClient::class)->createStorageVolume($cluster, $data['pool'], $data['name'], $data['description'] ?? null);
+                    Notification::make()->title(__('resources.volumes.create.success'))->success()->send();
+                    $this->loadData();
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.volumes.create.failed'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    public function deleteVolumeAction(): Action
+    {
+        return Action::make('deleteVolume')
+            ->label(__('resources.volumes.actions.delete'))
+            ->icon('heroicon-o-trash')
+            ->color('danger')
+            ->visible(fn (): bool => $this->userCan('volume.delete'))
+            ->requiresConfirmation()
+            ->modalHeading(__('resources.volumes.delete.heading'))
+            ->mountUsing(function (array $arguments) {
+                $this->deleteTargetName = $arguments['name'] ?? '';
+                $this->deleteTargetPool = $arguments['pool'] ?? '';
+                $this->deleteTargetCluster = $arguments['cluster'] ?? '';
+            })
+            ->modalDescription(fn () => __('resources.volumes.delete.description', [
+                'name' => $this->deleteTargetName,
+                'pool' => $this->deleteTargetPool,
+            ]))
+            ->schema([
+                TextInput::make('confirm')
+                    ->label(fn () => __('resources.volumes.delete.confirm_prompt', ['name' => $this->deleteTargetName]))
+                    ->required()
+                    ->rule(fn () => function ($_attr, $value, $fail) {
+                        if ($value !== $this->deleteTargetName) {
+                            $fail(__('instances.validation.name_mismatch'));
+                        }
+                    }),
+            ])
+            ->action(function () {
+                if (! $this->userCan('volume.delete')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+
+                    return;
+                }
+                $cluster = app(ClusterRegistry::class)->find($this->deleteTargetCluster);
+                if (! $cluster) {
+                    return;
+                }
+
+                try {
+                    app(IncusClient::class)->deleteStorageVolume($cluster, $this->deleteTargetPool, $this->deleteTargetName);
+                    Notification::make()->title(__('resources.volumes.delete.success'))->success()->send();
+                    $this->loadData();
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('resources.volumes.delete.failed'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    protected function userCan(string $permission): bool
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        return $user?->can($permission) ?? false;
+    }
+
+    private function tryLoad(array &$entry, Cluster $cluster, string $whatKey, array $tabs, \Closure $fn): array
     {
         try {
             return $fn();
         } catch (\Throwable $e) {
             report($e);
-
-            $reason = $this->cleanIncusError($e->getMessage());
-
+            $reason = $this->cleanIncusError($e);
             $entry['partial'][] = [
-                'what' => $what,
+                'what' => $whatKey,
                 'tabs' => $tabs,
-                'summary' => ucfirst($what).' are not shown for this cluster.',
+                'summary' => __("resources.notice.summary_{$whatKey}"),
                 'detail' => $this->noticeDetail($reason, $entry['version'], $cluster),
             ];
 
@@ -139,62 +250,37 @@ class ClusterResources extends Page
         }
     }
 
-    /**
-     * Reduce an HTTP client exception to the server's own error message. Incus
-     * returns a JSON body with an "error" field; the surrounding status line
-     * and JSON belong in the log, not on the page.
-     */
-    private function cleanIncusError(string $message): string
+    private function cleanIncusError(\Throwable $e): string
     {
+        $message = $e->getMessage();
         if (preg_match('/"error"\s*:\s*"([^"]+)"/', $message, $m)) {
             return $m[1];
         }
 
-        // Connection-level failures (timeout, refused) have no JSON body.
-        // Keep the first line, trimmed to a sane length.
         return Str::limit(strtok($message, "\n"), 120);
     }
 
-    /**
-     * The expanded explanation behind a notice. For the known restricted-
-     * certificate case this describes the cause and the administrator's
-     * options. A restricted certificate cannot raise its own level of access
-     * through the API; that is an Incus guarantee this product relies on, so
-     * the remedy always rests with the cluster's administrator.
-     */
     private function noticeDetail(string $reason, ?string $version, Cluster $cluster): string
     {
-        $detail = 'The server declined the request: '.lcfirst($reason).'.';
-
-        if (stripos($reason, 'restricted') === false) {
-            return $detail;
-        }
-
         $fp = $this->certFingerprint($cluster);
 
-        $detail .= ' This cluster runs Incus '.($version ?? 'of an unknown version')
-            .', which does not permit a restricted certificate to view storage information.'
-            .' Incus 7 and later provide a filtered view instead.'
-            .' This data becomes available if the cluster\'s administrator upgrades Incus,'
-            .' or grants the Kixctl certificate'
-            .($fp ? ' (fingerprint '.$fp.')' : '')
-            .' unrestricted access in the cluster\'s trust settings.'
-            .' Unrestricted access allows Kixctl to manage everything on that server,'
-            .' so that decision belongs to the administrator.'
-            .' Kixctl cannot raise its own level of access.';
+        if (stripos($reason, 'restricted') === false) {
+            return __('resources.notice.declined_reason', ['reason' => lcfirst($reason)]);
+        }
 
-        return $detail;
+        return __('resources.notice.restricted_cert_cause', [
+            'reason' => lcfirst($reason),
+            'version' => $version ?? __('common.labels.unknown_version'),
+            'fingerprint' => $fp ? " (fingerprint {$fp})" : '',
+        ]);
     }
 
-    /** SHA-256 fingerprint of our stored client certificate, as the trust store identifies it. */
     private function certFingerprint(Cluster $cluster): ?string
     {
         $pem = $cluster->connection['client_cert'] ?? null;
-
         if (! is_string($pem) || ! str_contains($pem, 'BEGIN CERTIFICATE')) {
             return null;
         }
-
         try {
             $fp = openssl_x509_fingerprint($pem, 'sha256');
 

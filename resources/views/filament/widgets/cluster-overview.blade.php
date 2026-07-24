@@ -18,18 +18,7 @@
             @keyframes kxpulse{0%{transform:scale(1);opacity:.6}100%{transform:scale(3.2);opacity:0}}
             .kx-meta{font-size:.72rem;color:var(--kx-muted);font-weight:500;}
             .kx-err{margin-bottom:1rem;padding:.7rem .9rem;border-radius:.6rem;font-size:.8rem;
-            .kx-node-res{margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--kx-ring);display:flex;flex-direction:column;gap:.7rem;}
-            .kx-res-row{}
-            .kx-res-top{display:flex;justify-content:space-between;font-size:.68rem;color:var(--kx-muted);margin-bottom:.2rem;font-weight:600;}
-            .kx-res-top b{color:var(--kx-fg);font-weight:640;}
-            .kx-res-bar{height:6px;border-radius:99px;background:var(--kx-soft);overflow:hidden;}
-            .kx-res-bar>i{display:block;height:100%;border-radius:99px;transition:width .4s ease;}
-            .kx-load{display:flex;align-items:baseline;gap:.5rem;margin-top:.15rem;}
-            .kx-load-label{font-size:.68rem;color:var(--kx-muted);font-weight:600;}
-            .kx-load-val{font-size:.9rem;font-weight:680;letter-spacing:-.01em;}
-            .kx-load-rest{font-size:.7rem;color:var(--kx-muted);}
                 background:color-mix(in srgb,var(--kx-off) 12%,transparent);color:var(--kx-off);border:1px solid color-mix(in srgb,var(--kx-off) 30%,transparent);}
-
             .kx-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-bottom:1rem;}
             @media(max-width:820px){.kx-stats{grid-template-columns:repeat(2,1fr);}}
             .kx-stat{background:var(--kx-surface);border:1px solid var(--kx-ring);border-radius:.8rem;
@@ -38,7 +27,6 @@
             .kx-stat-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;font-weight:650;color:var(--kx-muted);}
             .kx-stat-num{font-size:2rem;font-weight:680;letter-spacing:-.02em;line-height:1.1;margin-top:.15rem;}
             .kx-stat-sub{font-size:.72rem;color:var(--kx-muted);margin-top:.15rem;font-weight:500;}
-
             .kx-fleet{background:var(--kx-surface);border:1px solid var(--kx-ring);border-radius:.8rem;padding:1rem 1.1rem;margin-bottom:1rem;}
             .kx-fleet-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;}
             .kx-fleet-top span{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;font-weight:650;color:var(--kx-muted);}
@@ -47,7 +35,6 @@
             .kx-legend{display:flex;gap:1.2rem;margin-top:.7rem;flex-wrap:wrap;}
             .kx-legend div{display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:var(--kx-muted);}
             .kx-dot{width:8px;height:8px;border-radius:2px;flex:none;}
-
             .kx-section-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;font-weight:650;color:var(--kx-muted);margin:0 .2rem .6rem;}
             .kx-nodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:.75rem;}
             .kx-node{background:var(--kx-surface);border:1px solid var(--kx-ring);border-radius:.8rem;padding:1rem 1.1rem;transition:transform .12s ease,box-shadow .12s ease;}
@@ -63,66 +50,71 @@
             .kx-node-foot{display:flex;gap:.9rem;margin-top:.6rem;margin-bottom:.1rem;font-size:.72rem;color:var(--kx-muted);}
             .kx-node-foot b{color:var(--kx-fg);font-weight:640;}
             .kx-node-off{font-size:.72rem;color:var(--kx-off);font-weight:600;margin-top:.55rem;}
+            .kx-node-res{margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--kx-ring);display:flex;flex-direction:column;gap:.7rem;}
+            .kx-res-top{display:flex;justify-content:space-between;font-size:.68rem;color:var(--kx-muted);margin-bottom:.2rem;font-weight:600;}
+            .kx-res-top b{color:var(--kx-fg);font-weight:640;}
+            .kx-res-bar{height:6px;border-radius:99px;background:var(--kx-soft);overflow:hidden;}
+            .kx-res-bar>i{display:block;height:100%;border-radius:99px;transition:width .4s ease;}
+            .kx-load{display:flex;align-items:baseline;gap:.5rem;margin-top:.15rem;}
+            .kx-load-label{font-size:.68rem;color:var(--kx-muted);font-weight:600;}
+            .kx-load-val{font-size:.9rem;font-weight:680;letter-spacing:-.01em;}
+            .kx-load-rest{font-size:.7rem;color:var(--kx-muted);}
         </style>
 
-        {{-- header --}}
         <div class="kx-head">
             <div class="kx-title"><span class="kx-live"></span>{{ $label }}</div>
-            <div class="kx-meta">live · refreshed {{ $generatedAt }}</div>
+            <div class="kx-meta">{{ __('clusters.overview.live_refreshed', ['time' => $generatedAt]) }}</div>
         </div>
 
         @if (! empty($errors))
-            <div class="kx-err">Couldn't reach: {{ implode(', ', $errors) }}. Showing what's available.</div>
+            <div class="kx-err">{{ __('clusters.overview.unreachable_notice', ['clusters' => implode(', ', $errors)]) }}</div>
         @endif
 
-        {{-- stat cards --}}
         <div class="kx-stats">
             <div class="kx-stat" style="--accent:var(--kx-accent)">
-                <div class="kx-stat-label">Instances</div>
+                <div class="kx-stat-label">{{ __('clusters.overview.instances') }}</div>
                 <div class="kx-stat-num">{{ $total }}</div>
-                <div class="kx-stat-sub">{{ $containers }} CT · {{ $vms }} VM</div>
+                <div class="kx-stat-sub">{{ __('clusters.overview.containers_vms', ['containers' => $containers, 'vms' => $vms]) }}</div>
             </div>
             <div class="kx-stat" style="--accent:var(--kx-run)">
-                <div class="kx-stat-label">Running</div>
+                <div class="kx-stat-label">{{ __('clusters.overview.running') }}</div>
                 <div class="kx-stat-num">{{ $running }}</div>
-                <div class="kx-stat-sub">{{ $runPct }}% of fleet</div>
+                <div class="kx-stat-sub">{{ __('clusters.overview.running_pct', ['pct' => $runPct]) }}</div>
             </div>
             <div class="kx-stat" style="--accent:var(--kx-stop)">
-                <div class="kx-stat-label">Stopped</div>
+                <div class="kx-stat-label">{{ __('clusters.overview.stopped') }}</div>
                 <div class="kx-stat-num">{{ $stopped }}</div>
-                <div class="kx-stat-sub">{{ $other ? $other.' other' : 'idle' }}</div>
+                <div class="kx-stat-sub">{{ trans_choice('clusters.overview.stopped_sub', $other) }}</div>
             </div>
             <div class="kx-stat" style="--accent:{{ $nodesOnline === $nodesTotal ? 'var(--kx-run)' : 'var(--kx-off)' }}">
-                <div class="kx-stat-label">Nodes online</div>
+                <div class="kx-stat-label">{{ __('clusters.overview.nodes_online') }}</div>
                 <div class="kx-stat-num">{{ $nodesOnline }}</div>
-                <div class="kx-stat-sub">of {{ $nodesTotal }} node{{ $nodesTotal === 1 ? '' : 's' }}</div>
+                <div class="kx-stat-sub">{{ trans_choice('clusters.overview.nodes_online_sub', $nodesTotal) }}</div>
             </div>
         </div>
 
-        {{-- fleet health bar --}}
         <div class="kx-fleet">
-            <div class="kx-fleet-top"><span>Fleet health</span><span>{{ $total }} total</span></div>
+            <div class="kx-fleet-top"><span>{{ __('clusters.overview.fleet_health') }}</span><span>{{ __('clusters.overview.fleet_total', ['count' => $total]) }}</span></div>
             <div class="kx-bar">
                 @if ($running)<i style="width:{{ $runPct }}%;min-width:3px;background:var(--kx-run)"></i>@endif
                 @if ($stopped)<i style="width:{{ $stopPct }}%;min-width:3px;background:var(--kx-stop)"></i>@endif
                 @if ($other)<i style="width:{{ $otherPct }}%;min-width:3px;background:var(--kx-warn)"></i>@endif
             </div>
             <div class="kx-legend">
-                <div><span class="kx-dot" style="background:var(--kx-run)"></span>Running {{ $running }}</div>
-                <div><span class="kx-dot" style="background:var(--kx-stop)"></span>Stopped {{ $stopped }}</div>
-                @if ($other)<div><span class="kx-dot" style="background:var(--kx-warn)"></span>Other {{ $other }}</div>@endif
+                <div><span class="kx-dot" style="background:var(--kx-run)"></span>{{ __('clusters.overview.running') }} {{ $running }}</div>
+                <div><span class="kx-dot" style="background:var(--kx-stop)"></span>{{ __('clusters.overview.stopped') }} {{ $stopped }}</div>
+                @if ($other)<div><span class="kx-dot" style="background:var(--kx-warn)"></span>{{ __('clusters.overview.other', ['count' => $other]) }}</div>@endif
             </div>
         </div>
 
-        {{-- per-node grid --}}
-        <div class="kx-section-label">Nodes</div>
+        <div class="kx-section-label">{{ __('clusters.overview.nodes') }}</div>
         <div class="kx-nodes">
             @foreach ($nodeCards as $n)
                 <div class="kx-node">
                     <div class="kx-node-head">
                         <span class="kx-node-dot" style="background:{{ $n['online'] ? 'var(--kx-run)' : 'var(--kx-off)' }}"></span>
                         <span class="kx-node-name">{{ $n['name'] }}</span>
-                        <span class="kx-node-count">{{ $n['total'] }} inst</span>
+                        <span class="kx-node-count">{{ __('clusters.overview.node_inst_count', ['count' => $n['total']]) }}</span>
                     </div>
 
                     @if (! empty($n['roleLabels']))
@@ -140,9 +132,9 @@
                             @if ($n['other'])<i style="width:{{ $n['total'] ? round($n['other'] / $n['total'] * 100, 1) : 0 }}%;min-width:3px;background:var(--kx-warn)"></i>@endif
                         </div>
                         <div class="kx-node-foot">
-                            <span><b>{{ $n['running'] }}</b> up</span>
-                            <span><b>{{ $n['stopped'] }}</b> down</span>
-                            <span>{{ $n['containers'] }} CT · {{ $n['vms'] }} VM</span>
+                            <span><b>{{ $n['running'] }}</b> {{ __('clusters.overview.node_up') }}</span>
+                            <span><b>{{ $n['stopped'] }}</b> {{ __('clusters.overview.node_down') }}</span>
+                            <span>{{ __('clusters.overview.containers_vms', ['containers' => $n['containers'], 'vms' => $n['vms']]) }}</span>
                         </div>
                         @if ($n['state'])
                             @php
@@ -156,8 +148,8 @@
                             <div class="kx-node-res">
                                 <div class="kx-res-row">
                                     <div class="kx-res-top">
-                                        <span>Memory · {{ $st['ram_pct'] }}%</span>
-                                        <span><b>{{ $fmtGiB($st['ram_used']) }}</b> used of {{ $fmtGiB($st['ram_total']) }}</span>
+                                        <span>{{ __('clusters.overview.memory') }} · {{ $st['ram_pct'] }}%</span>
+                                        <span><b>{{ $fmtGiB($st['ram_used']) }}</b> {{ __('clusters.overview.memory_used_of') }} {{ $fmtGiB($st['ram_total']) }}</span>
                                     </div>
                                     <div class="kx-res-bar"><i style="width:{{ max(2, $st['ram_pct']) }}%;background:{{ $ramColor }}"></i></div>
                                 </div>
@@ -165,13 +157,13 @@
                                     <div class="kx-res-row">
                                         <div class="kx-res-top">
                                             <span>{{ $st['pool_name'] }} · {{ $st['pool_pct'] }}%</span>
-                                            <span><b>{{ $fmtGiB($st['pool_used']) }}</b> used of {{ $fmtGiB($st['pool_total']) }}</span>
+                                            <span><b>{{ $fmtGiB($st['pool_used']) }}</b> {{ __('clusters.overview.memory_used_of') }} {{ $fmtGiB($st['pool_total']) }}</span>
                                         </div>
                                         <div class="kx-res-bar"><i style="width:{{ max(2, $st['pool_pct']) }}%;background:{{ $poolColor }}"></i></div>
                                     </div>
                                 @endif
                                 <div class="kx-load">
-                                    <span class="kx-load-label">Load</span>
+                                    <span class="kx-load-label">{{ __('clusters.overview.load') }}</span>
                                     <span class="kx-load-val" style="color:{{ $loadColor }}">{{ number_format($load1, 2) }}</span>
                                     <span class="kx-load-rest">· {{ number_format($st['load'][1] ?? 0, 2) }} · {{ number_format($st['load'][2] ?? 0, 2) }}</span>
                                 </div>

@@ -16,17 +16,21 @@ class ClusterInstances extends Page
 {
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedServerStack;
 
-    protected static ?string $navigationLabel = 'Instances';
-
-    protected static ?string $title = 'Instances';
-
     protected string $view = 'filament.pages.cluster-instances';
 
     public array $clusters = [];
-
     public array $members = [];
-
     public array $instances = [];
+
+    public static function getNavigationLabel(): string
+    {
+        return __('instances.plural');
+    }
+
+    public function getTitle(): string | \Illuminate\Contracts\Support\Htmlable
+    {
+        return __('instances.title');
+    }
 
     public function mount(): void
     {
@@ -43,12 +47,7 @@ class ClusterInstances extends Page
         $this->instances = [];
 
         foreach ($registry->all() as $cluster) {
-            // Each cluster is loaded in isolation. A cluster that is down,
-            // misconfigured, or has a bad cert must NOT take the page (or any
-            // other cluster) with it — it degrades to an unreachable entry.
             try {
-                // Compute both before merging so a partial failure (members OK,
-                // instances throws) leaves NO half-loaded state for this cluster.
                 $members = $incus->members($cluster);
                 $instances = $incus->instances($cluster);
 
@@ -62,22 +61,18 @@ class ClusterInstances extends Page
                     'error' => null,
                 ];
             } catch (\Throwable $e) {
-                // Log for observability, but keep rendering everything else.
                 report($e);
-
                 $this->clusters[] = [
                     'key' => $cluster->key,
                     'label' => $cluster->label,
                     'reachable' => false,
-                    'error' => $e->getMessage(),
+                    'error' => $this->cleanIncusError($e),
                 ];
             }
         }
 
-        // Enrich only the members we actually loaded (reachable clusters).
         $this->members = collect($this->members)->map(function ($m) {
             $parts = parse_url($m['url']);
-
             return [
                 ...$m,
                 'host' => $parts['host'] ?? $m['url'],
@@ -89,75 +84,74 @@ class ClusterInstances extends Page
             ];
         })->values()->all();
 
-        // Browser event → Alpine re-pulls the table with fresh live data.
         $this->dispatch('instance-changed');
     }
 
-    /**
-     * Whether the current user holds a given permission.
-     * super_admin bypasses via Shield's gate interception.
-     */
     protected function userCan(string $permission): bool
     {
         /** @var User|null $user */
         $user = Auth::user();
-
         return $user?->can($permission) ?? false;
     }
 
-    /** For the Blade: hide a lifecycle button ('start'|'stop'|'restart') per permission. */
     public function canRun(string $action): bool
     {
         return $this->userCan('instance.'.$action);
     }
 
-    /** Invoked from the row buttons via $wire. Validates, acts, reloads. */
     public function runAction(string $cluster, string $name, string $action): void
     {
         if (! in_array($action, ['start', 'stop', 'restart'], true)) {
-            Notification::make()->title('Unsupported action')->danger()->send();
-
+            Notification::make()->title(__('common.notifications.unsupported_action'))->danger()->send();
             return;
         }
 
         if (! $this->userCan('instance.'.$action)) {
             Notification::make()
-                ->title('Not authorized')
-                ->body("You do not have permission to {$action} instances.")
+                ->title(__('common.notifications.unauthorized_title'))
+                ->body(__('instances.notifications.unauthorized_action', ['action' => $action]))
                 ->danger()
                 ->send();
-
             return;
         }
 
         $target = app(ClusterRegistry::class)->find($cluster);
         if (! $target) {
-            Notification::make()->title('Unknown cluster')->danger()->send();
-
+            Notification::make()->title(__('clusters.notifications.unknown_cluster'))->danger()->send();
             return;
         }
 
         try {
             app(IncusClient::class)->setInstanceState($target, $name, $action);
             Notification::make()
-                ->title(ucfirst($action).' succeeded')
+                ->title(__('instances.notifications.action_succeeded_title', ['action' => ucfirst($action)]))
                 ->body($name)
                 ->success()
                 ->send();
         } catch (\Throwable $e) {
+            report($e);
             Notification::make()
-                ->title(ucfirst($action).' failed')
-                ->body($e->getMessage())
+                ->title(__('instances.notifications.action_failed_title', ['action' => ucfirst($action)]))
+                ->body($this->cleanIncusError($e))
                 ->danger()
                 ->send();
         }
 
-        $this->loadData(); // client pulls the fresh state after the call resolves
+        $this->loadData();
     }
 
     #[On('instance-created')]
     public function refreshInstances(): void
     {
         $this->loadData();
+    }
+
+    protected function cleanIncusError(\Throwable $e): string
+    {
+        $message = $e->getMessage();
+        if (preg_match('/"error"\s*:\s*"([^"]+)"/', $message, $m)) {
+            return $m[1];
+        }
+        return \Illuminate\Support\Str::limit(strtok($message, "\n"), 120);
     }
 }

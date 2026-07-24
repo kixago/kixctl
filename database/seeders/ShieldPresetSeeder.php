@@ -13,14 +13,10 @@ class ShieldPresetSeeder extends Seeder
     {
         $guard = 'web';
 
-        // Prune the now-excluded page/widget permissions the earlier
-        // generate left behind. These are inert (nothing enforces them),
-        // but there's no reason to keep them around.
         Permission::where('name', 'like', '%ClusterInstances%')
             ->orWhere('name', 'like', '%ClusterOverview%')
             ->delete();
 
-        // The granular verb permissions — one per real action.
         $permissions = [
             'instance.create',
             'instance.start',
@@ -30,6 +26,11 @@ class ShieldPresetSeeder extends Seeder
             'snapshot.restore',
             'snapshot.delete',
             'instance.delete',
+            'instance.rename',
+            'volume.create',
+            'volume.delete',
+            'instance.profile.update',
+            'instance.config.update',
         ];
 
         foreach ($permissions as $name) {
@@ -39,9 +40,6 @@ class ShieldPresetSeeder extends Seeder
             ]);
         }
 
-        // Preset roles. These are starting defaults — you retune each
-        // checkbox per role in the UI. super_admin already exists and
-        // bypasses everything, so it isn't touched here.
         $operator = Role::firstOrCreate(['name' => 'operator', 'guard_name' => $guard]);
         $operator->syncPermissions([
             'instance.create',
@@ -51,11 +49,14 @@ class ShieldPresetSeeder extends Seeder
             'snapshot.create',
             'snapshot.restore',
             'snapshot.delete',
-            // deliberately NOT instance.delete
+            'instance.rename',
+            'volume.create',
+            'instance.profile.update',
+            'instance.config.update',
         ]);
 
         $viewer = Role::firstOrCreate(['name' => 'viewer', 'guard_name' => $guard]);
-        $viewer->syncPermissions([]); // read-only: no verbs granted
+        $viewer->syncPermissions([]);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }

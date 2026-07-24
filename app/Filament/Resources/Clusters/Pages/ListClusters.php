@@ -23,14 +23,9 @@ class ListClusters extends ListRecords
             ];
         }
 
-        // At the cap: the button stays VISIBLE but locked — clicking it
-        // upsells immediately instead of walking the user into a form
-        // that can only be refused. (Paid-feature preview, not a hidden
-        // feature.) Evaluated at page mount; freeing a slot shows the
-        // real button on the next page load.
         return [
             Action::make('clusterLimit')
-                ->label('New cluster')
+                ->label(__('licensing.gate.button_locked'))
                 ->icon(Heroicon::OutlinedLockClosed)
                 ->color('gray')
                 ->action(fn () => ClusterResource::notifyClusterLimit($entitlements)),
