@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Models\User;
+use App\Models\ProfileRestartFlag;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
 use BackedEnum;
@@ -52,7 +53,7 @@ class ClusterInstances extends Page
                 $instances = $incus->instances($cluster);
 
                 $this->members = array_merge($this->members, $members);
-                $this->instances = array_merge($this->instances, $instances);
+                $this->instances = array_merge($this->instances, $this->flagRestarts($instances, $cluster->key));
 
                 $this->clusters[] = [
                     'key' => $cluster->key,
@@ -144,6 +145,82 @@ class ClusterInstances extends Page
     public function refreshInstances(): void
     {
         $this->loadData();
+    }
+
+    /**
+     * Annotate instances with an advisory restart warning. An instance is flagged
+     * only when it is running, inherits a profile whose definition changed in a way
+     * that needs a restart, is a type the change affects, and has not been restarted
+     * since (its last_used_at predates the flag). Restarting it — through kixctl or
+     * anywhere else — moves last_used_at past flagged_at and clears the warning on
+     * the next load, so nothing goes stale and nothing nags after the work is done.
+     */
+    protected function flagRestarts(array $instances, string $clusterKey): array
+    {
+        $flags = ProfileRestartFlag::forCluster($clusterKey);
+        if ($flags->isEmpty()) {
+            return $instances;
+        }
+
+        return array_map(function (array $instance) use ($flags) {
+            $instance['needs_restart'] = false;
+            $instance['restart_reason'] = null;
+
+            if (($instance['status'] ?? '') !== 'Running') {
+                return $instance;
+            }
+
+            $lastUsed = null;
+            $ts = $instance['last_used_at'] ?? null;
+            if ($ts) {
+                try {
+                    $parsed = \Illuminate\Support\Carbon::parse($ts);
+                    $lastUsed = $parsed->year > 1 ? $parsed : null;
+                } catch (\Throwable) {
+                    $lastUsed = null;
+                }
+            }
+
+            foreach ($flags as $flag) {
+                if (! in_array($flag->profile_name, $instance['profiles'] ?? [], true)) {
+                    continue;
+                }
+                if (! in_array($instance['type'] ?? '', $flag->affected_types ?? [], true)) {
+                    continue;
+                }
+                if ($lastUsed !== null && $lastUsed->greaterThanOrEqualTo($flag->flagged_at)) {
+                    continue;
+                }
+
+                $instance['needs_restart'] = true;
+                $instance['restart_reason'] = $this->restartReason($flag);
+                break;
+            }
+
+            return $instance;
+        }, $instances);
+    }
+
+    protected function restartReason(ProfileRestartFlag $flag): string
+    {
+        $phrases = [];
+        foreach ($flag->changes ?? [] as $change) {
+            $key = $change['key'] ?? '';
+            $to = $change['to'] ?? '';
+            $phrases[] = match ($key) {
+                'security.nesting' => $to === 'true'
+                    ? __('instances.restart.change.nesting_on')
+                    : __('instances.restart.change.nesting_off'),
+                'limits.cpu' => __('instances.restart.change.cpu'),
+                'limits.memory' => __('instances.restart.change.memory'),
+                default => $key,
+            };
+        }
+
+        return __('instances.restart.reason', [
+            'profile' => $flag->profile_name,
+            'what' => implode(', ', $phrases),
+        ]);
     }
 
     protected function cleanIncusError(\Throwable $e): string

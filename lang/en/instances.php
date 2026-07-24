@@ -11,6 +11,16 @@ return [
         'container_short' => 'CT',
         'vm_short' => 'VM',
     ],
+    'restart' => [
+        'title' => 'Restart needed',
+        'reason' => 'The :profile profile changed — :what. This instance is still running the previous definition; restart it when convenient to apply the change. Nothing changes until you do.',
+        'change' => [
+            'nesting_on' => 'nesting was turned on',
+            'nesting_off' => 'nesting was turned off',
+            'cpu' => 'the CPU limit changed',
+            'memory' => 'the memory limit changed',
+        ],
+    ],
     'actions' => [
         'create_instance' => 'Create instance',
         'create_another' => 'Create another',

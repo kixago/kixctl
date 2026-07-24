@@ -151,6 +151,8 @@ class IncusClient
                 'status' => $i['status'],
                 'node' => $this->resolveLocation($cluster, $i['location'] ?? null),
                 'ipv4' => $this->primaryIpv4($i['state'] ?? null),
+                'profiles' => $i['profiles'] ?? [],
+                'last_used_at' => $i['last_used_at'] ?? null,
             ])
             ->sortBy('node')
             ->values()

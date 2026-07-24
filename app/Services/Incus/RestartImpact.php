@@ -25,6 +25,9 @@ class RestartImpact
         'limits.memory' => ['virtual-machine'],
     ];
 
+    /** Keys whose unset value and "false" mean the same thing, so switching between them is not a change. */
+    private const BOOLEAN_KEYS = ['security.nesting'];
+
     /**
      * Compare a profile's config before and after an edit. Returns the restart
      * impact, or null when nothing that changed requires a restart.
@@ -41,6 +44,11 @@ class RestartImpact
         foreach (self::RESTART_KEYS as $key => $affectedTypes) {
             $old = (string) ($oldConfig[$key] ?? '');
             $new = (string) ($newConfig[$key] ?? '');
+
+            if (in_array($key, self::BOOLEAN_KEYS, true)) {
+                $old = $old === 'true' ? 'true' : 'false';
+                $new = $new === 'true' ? 'true' : 'false';
+            }
 
             if ($old === $new) {
                 continue;

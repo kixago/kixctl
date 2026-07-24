@@ -80,7 +80,26 @@
                 <tbody>
                     <template x-for="i in filtered" :key="i.cluster + '/' + i.name">
                         <tr style="border-top:1px solid #27272a;">
-                            <td style="padding:.7rem 1rem;font-weight:600;" x-text="i.name"></td>
+                            <td style="padding:.7rem 1rem;">
+                                <span x-data="{ show: false }" style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:.15rem;">
+                                    <span style="display:inline-flex;align-items:center;gap:.4rem;font-weight:600;">
+                                        <span x-text="i.name"></span>
+                                        <template x-if="i.needs_restart">
+                                            <button type="button" @click.stop="show = !show" :title="i.restart_reason"
+                                                aria-label="{{ __('instances.restart.title') }}"
+                                                style="cursor:pointer;border:none;background:none;padding:0;display:inline-flex;align-items:center;line-height:1;color:#f59e0b;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:.95rem;height:.95rem;">
+                                                    <path fill-rule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V9a.75.75 0 0 1 .75-.75zm0 8.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </template>
+                                    </span>
+                                    <template x-if="i.needs_restart && show">
+                                        <span x-text="i.restart_reason"
+                                            style="display:block;max-width:26rem;white-space:normal;font-weight:400;font-size:.78rem;line-height:1.4;color:#f59e0b;opacity:.9;"></span>
+                                    </template>
+                                </span>
+                            </td>
                             <td style="padding:.7rem 1rem;opacity:.7;" x-text="i.cluster_label"></td>
                             <td style="padding:.7rem 1rem;opacity:.7;" x-text="i.node"></td>
                             <td style="padding:.7rem 1rem;">

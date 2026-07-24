@@ -27,20 +27,17 @@ class ProfileRestartFlag extends Model
     }
 
     /**
-     * Record or clear the flag for a profile after an edit. A null impact means the
-     * edit needs no restart, so any existing flag is removed — resolving a change by
-     * editing it back also clears the warning.
+     * Record a restart-requiring change to a profile. A restart-requiring edit
+     * (re)raises the flag with a fresh timestamp; an edit with no restart impact
+     * leaves any existing flag alone, because instances flagged by an earlier
+     * change may still be running stale config until they restart. Flags resolve
+     * per instance via last_used_at, not by later unrelated edits.
      *
      * @param  array{types: list<string>, changes: list<array{key:string,to:string}>}|null  $impact
      */
     public static function sync(string $clusterKey, string $profileName, ?array $impact): void
     {
         if ($impact === null) {
-            static::query()
-                ->where('cluster_key', $clusterKey)
-                ->where('profile_name', $profileName)
-                ->delete();
-
             return;
         }
 
