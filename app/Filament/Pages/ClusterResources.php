@@ -192,16 +192,6 @@ class ClusterResources extends Page implements HasActions, HasSchemas
                 'name' => $this->deleteTargetName,
                 'pool' => $this->deleteTargetPool,
             ]))
-            ->schema([
-                TextInput::make('confirm')
-                    ->label(fn () => __('resources.volumes.delete.confirm_prompt', ['name' => $this->deleteTargetName]))
-                    ->required()
-                    ->rule(fn () => function ($_attr, $value, $fail) {
-                        if ($value !== $this->deleteTargetName) {
-                            $fail(__('instances.validation.name_mismatch'));
-                        }
-                    }),
-            ])
             ->action(function () {
                 if (! $this->userCan('volume.delete')) {
                     Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();

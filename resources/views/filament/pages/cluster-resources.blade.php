@@ -22,10 +22,10 @@
         <div style="display:flex;gap:.25rem;border-bottom:1px solid #27272a;margin-bottom:1rem;">
             <template x-for="t in tabs" :key="t.key">
                 <button @click="switchTab(t.key)"
-                    style="padding:.55rem 1rem;font-size:.9rem;background:none;border:none;color:inherit;cursor:pointer;border-bottom:2px solid transparent;"
-                    :style="tab === t.key ? 'border-bottom-color:#f59e0b;opacity:1;font-weight:600;' : 'opacity:.55;'">
+                    style="padding:.55rem 1rem;font-size:.9rem;background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s ease,border-color .15s ease;"
+                    :style="tab === t.key ? 'border-bottom-color:#f59e0b;color:#fafafa;font-weight:600;' : 'color:#a1a1aa;font-weight:500;'">
                     <span x-text="t.label"></span>
-                    <span style="margin-left:.3rem;font-size:.75rem;opacity:.6;" x-text="'(' + countFor(t.key) + ')'"></span>
+                    <span style="margin-left:.3rem;font-size:.75rem;color:#71717a;" x-text="'(' + countFor(t.key) + ')'"></span>
                 </button>
             </template>
         </div>

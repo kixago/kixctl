@@ -456,16 +456,6 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             ->requiresConfirmation()
             ->modalHeading(__('instances.detail.modals.restore_heading'))
             ->modalDescription(fn (array $arguments) => __('instances.detail.modals.restore_description', ['name' => $this->name, 'snapshot' => $arguments['snapshot']]))
-            ->schema([
-                TextInput::make('confirm')
-                    ->label(__('instances.detail.modals.confirm_instance_prompt', ['name' => $this->name]))
-                    ->required()
-                    ->rule(fn () => function ($_attr, $value, $fail) {
-                        if ($value !== $this->name) {
-                            $fail(__('instances.validation.name_mismatch'));
-                        }
-                    }),
-            ])
             ->action(function (array $arguments) {
                 if (! $this->userCan('snapshot.restore')) {
                     Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_snapshot_restore'))->danger()->send();
@@ -489,16 +479,6 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             ->requiresConfirmation()
             ->modalHeading(__('instances.detail.modals.delete_instance_heading'))
             ->modalDescription(fn () => __('instances.detail.modals.delete_instance_description', ['name' => $this->name]))
-            ->schema([
-                TextInput::make('confirm')
-                    ->label(__('instances.detail.modals.confirm_instance_prompt', ['name' => $this->name]))
-                    ->required()
-                    ->rule(fn () => function ($_attr, $value, $fail) {
-                        if ($value !== $this->name) {
-                            $fail(__('instances.validation.name_mismatch'));
-                        }
-                    }),
-            ])
             ->action(function () {
                 if (! $this->userCan('instance.delete')) {
                     Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_delete'))->danger()->send();
@@ -526,16 +506,7 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             ->requiresConfirmation()
             ->modalHeading(__('instances.detail.modals.delete_snapshot_heading'))
             ->mountUsing(fn (array $arguments) => $this->deleteTarget = $arguments['snapshot'] ?? '')
-            ->schema([
-                TextInput::make('confirm')
-                    ->label(__('instances.detail.modals.confirm_snapshot_prompt'))
-                    ->required()
-                    ->rule(fn () => function ($_attribute, $value, $fail) {
-                        if ($value !== $this->deleteTarget) {
-                            $fail(__('instances.validation.name_mismatch'));
-                        }
-                    }),
-            ])
+            ->modalDescription(fn () => __('instances.detail.modals.delete_snapshot_description', ['snapshot' => $this->deleteTarget]))
             ->action(fn () => $this->deleteConfirmed());
     }
 

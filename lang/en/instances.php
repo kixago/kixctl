@@ -73,12 +73,11 @@ return [
         ],
         'modals' => [
             'restore_heading' => 'Restore snapshot',
-            'restore_description' => 'This reverts “:name” entirely to snapshot “:snapshot”, including its data. This cannot be undone.',
+            'restore_description' => 'This reverts “:name” entirely to snapshot “:snapshot”, including its data. This cannot be undone. Are you absolutely sure?',
             'delete_instance_heading' => 'Delete instance',
-            'delete_instance_description' => 'This permanently deletes “:name” and its root filesystem. Attached volumes that persist are not removed. This cannot be undone.',
+            'delete_instance_description' => 'This permanently deletes “:name” and its root filesystem. Attached volumes that persist are not removed. This cannot be undone. Are you absolutely sure?',
             'delete_snapshot_heading' => 'Delete snapshot',
-            'confirm_instance_prompt' => 'Type the instance name (“:name”) to confirm',
-            'confirm_snapshot_prompt' => 'Type the snapshot name to confirm',
+            'delete_snapshot_description' => 'This deletes snapshot “:snapshot”. This cannot be undone. Are you sure?',
         ],
     ],
     'create' => [

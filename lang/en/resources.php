@@ -48,8 +48,7 @@ return [
         ],
         'delete' => [
             'heading' => 'Delete custom volume',
-            'description' => 'This permanently deletes the custom volume “:name” from pool “:pool”. This cannot be undone.',
-            'confirm_prompt' => 'Type the volume name (“:name”) to confirm',
+            'description' => 'This permanently deletes the custom volume “:name” from pool “:pool”. This cannot be undone. Are you absolutely sure?',
             'success' => 'Volume deleted',
             'failed' => 'Delete failed',
         ],
