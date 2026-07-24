@@ -17,6 +17,11 @@ class ShieldPresetSeeder extends Seeder
             ->orWhere('name', 'like', '%ClusterOverview%')
             ->delete();
 
+        // Retired: the bulk "set the whole profiles list" verb is replaced by the
+        // granular profile.attach / profile.detach verbs. Remove the orphaned row so
+        // no role can still edit an instance's profiles outside the granular gates.
+        Permission::where('name', 'instance.profile.update')->delete();
+
         $permissions = [
             'instance.create',
             'instance.start',
@@ -29,7 +34,8 @@ class ShieldPresetSeeder extends Seeder
             'instance.rename',
             'volume.create',
             'volume.delete',
-            'instance.profile.update',
+            'profile.attach',
+            'profile.detach',
             'instance.config.update',
         ];
 
@@ -51,7 +57,8 @@ class ShieldPresetSeeder extends Seeder
             'snapshot.delete',
             'instance.rename',
             'volume.create',
-            'instance.profile.update',
+            'profile.attach',
+            'profile.detach',
             'instance.config.update',
         ]);
 

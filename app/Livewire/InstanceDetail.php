@@ -292,49 +292,124 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             });
     }
 
-    public function editProfilesAction(): Action
+    /**
+     * Profiles on this cluster that are not already attached to this instance,
+     * labeled with how widely each is shared (reusing the read-surface signal).
+     *
+     * @return array<string, string>
+     */
+    protected function attachableProfileOptions(): array
     {
-        return Action::make('editProfiles')
-            ->label(__('common.actions.edit'))
-            ->icon('heroicon-m-pencil-square')
+        $current = data_get($this->config, 'profiles', []);
+        $cluster = $this->target();
+        if (! $cluster) {
+            return [];
+        }
+
+        try {
+            $all = app(IncusClient::class)->profilesFull($cluster);
+        } catch (\Throwable $e) {
+            report($e);
+            return [];
+        }
+
+        return collect($all)
+            ->reject(fn (array $p): bool => in_array($p['name'], $current, true))
+            ->mapWithKeys(function (array $p): array {
+                $label = trans_choice('instances.detail.profiles.option_used_by', $p['used_by'], [
+                    'name' => $p['name'],
+                    'count' => $p['used_by'],
+                ]);
+
+                // Reuse the read surface's "shared widely" signal at the same threshold.
+                if ($p['used_by'] >= 10) {
+                    $label .= ' · '.__('resources.profiles.shared_widely');
+                }
+
+                return [$p['name'] => $label];
+            })
+            ->all();
+    }
+
+    public function attachProfileAction(): Action
+    {
+        return Action::make('attachProfile')
+            ->label(__('instances.detail.profiles.attach_action'))
+            ->icon('heroicon-m-plus')
             ->iconButton()
             ->size('sm')
             ->color('gray')
-            ->visible(fn (): bool => $this->userCan('instance.profile.update'))
-            ->modalHeading(__('instances.detail.profiles.heading'))
-            ->fillForm(fn (): array => [
-                'profiles' => data_get($this->config, 'profiles', []),
-            ])
+            ->visible(fn (): bool => $this->userCan('profile.attach'))
+            ->modalHeading(__('instances.detail.profiles.attach_heading'))
             ->schema([
-                Select::make('profiles')
-                    ->label(__('instances.detail.profiles.heading'))
-                    ->multiple()
-                    ->options(function () {
-                        try {
-                            $cluster = $this->target();
-                            if (!$cluster) return [];
-                            return collect(app(IncusClient::class)->profiles($cluster))
-                                ->mapWithKeys(fn($p) => [$p => $p])
-                                ->all();
-                        } catch (\Throwable $e) {
-                            return [];
-                        }
-                    })
+                Select::make('profile')
+                    ->label(__('instances.detail.profiles.attach_label'))
+                    ->options(fn (): array => $this->attachableProfileOptions())
                     ->required()
-                    ->minItems(1)
-                    ->helperText(__('instances.detail.profiles.edit_helper')),
+                    ->helperText(__('instances.detail.profiles.attach_helper')),
             ])
             ->action(function (array $data) {
-                if (! $this->userCan('instance.profile.update')) {
-                    Notification::make()->title(__('common.notifications.unauthorized_title'))->danger()->send();
+                if (! $this->userCan('profile.attach')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_profile_attach'))->danger()->send();
                     return;
                 }
 
+                $profile = $data['profile'] ?? '';
+                $current = data_get($this->config, 'profiles', []);
+                if ($profile === '' || in_array($profile, $current, true)) {
+                    return;
+                }
+
+                $next = array_values(array_merge($current, [$profile]));
+
                 try {
-                    app(IncusClient::class)->updateInstance($this->target(), $this->name, [
-                        'profiles' => array_values($data['profiles']),
-                    ]);
-                    Notification::make()->title(__('instances.notifications.profiles_updated_title'))->success()->send();
+                    app(IncusClient::class)->updateInstance($this->target(), $this->name, ['profiles' => $next]);
+                    Notification::make()->title(__('instances.notifications.profile_attached_title'))->body($profile)->success()->send();
+                    $this->refreshData();
+                    $this->dispatch('instance-changed');
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title(__('instances.notifications.update_failed_title'))->body($this->cleanIncusError($e))->danger()->send();
+                }
+            });
+    }
+
+    public function detachProfileAction(): Action
+    {
+        return Action::make('detachProfile')
+            ->label(__('instances.detail.profiles.detach_action'))
+            ->icon('heroicon-m-x-mark')
+            ->iconButton()
+            ->size('sm')
+            ->color('danger')
+            ->visible(fn (): bool => $this->userCan('profile.detach'))
+            ->requiresConfirmation()
+            ->modalHeading(__('instances.detail.profiles.detach_heading'))
+            ->modalDescription(fn (array $arguments): string => __('instances.detail.profiles.detach_description', [
+                'profile' => $arguments['profile'] ?? '',
+                'name' => $this->name,
+            ]))
+            ->action(function (array $arguments) {
+                if (! $this->userCan('profile.detach')) {
+                    Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_profile_detach'))->danger()->send();
+                    return;
+                }
+
+                $profile = $arguments['profile'] ?? '';
+                $current = data_get($this->config, 'profiles', []);
+                if ($profile === '' || ! in_array($profile, $current, true)) {
+                    return;
+                }
+                if (count($current) <= 1) {
+                    Notification::make()->title(__('instances.notifications.detach_last_profile_title'))->body(__('instances.notifications.detach_last_profile_body'))->warning()->send();
+                    return;
+                }
+
+                $next = array_values(array_filter($current, fn ($p): bool => $p !== $profile));
+
+                try {
+                    app(IncusClient::class)->updateInstance($this->target(), $this->name, ['profiles' => $next]);
+                    Notification::make()->title(__('instances.notifications.profile_detached_title'))->body($profile)->success()->send();
                     $this->refreshData();
                     $this->dispatch('instance-changed');
                 } catch (\Throwable $e) {
