@@ -83,7 +83,11 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             $this->logFiles = [];
         }
         if ($this->selectedLogFile === '' && ! empty($this->logFiles)) {
-            $this->viewLogFile($this->logFiles[0]['name']);
+            $first = $this->logFiles[0] ?? null;
+            $firstName = is_array($first) ? ($first['name'] ?? null) : null;
+            if (is_string($firstName) && $firstName !== '') {
+                $this->viewLogFile($firstName);
+            }
         }
     }
 

@@ -294,13 +294,35 @@ class IncusClient
     {
         $encoded = rawurlencode($name);
 
-        return $this->get($cluster, "/1.0/instances/{$encoded}/logs", ['recursion' => 1]);
+        // Incus returns a plain list of file URL strings (e.g.
+        // "/1.0/instances/foo/logs/lxc.log"), sometimes nested under
+        // "exec-output/". Normalize every entry to ['name' => <path under /logs/>]
+        // so the view and auto-open can rely on a stable shape.
+        return collect($this->get($cluster, "/1.0/instances/{$encoded}/logs", ['recursion' => 1]))
+            ->map(function ($entry): ?array {
+                if (is_array($entry)) {
+                    $file = (string) ($entry['name'] ?? '');
+                } else {
+                    $entry = (string) $entry;
+                    $pos = strpos($entry, '/logs/');
+                    $file = $pos !== false ? substr($entry, $pos + 6) : basename($entry);
+                }
+
+                $file = trim($file, '/');
+
+                return $file !== '' ? ['name' => $file] : null;
+            })
+            ->filter()
+            ->values()
+            ->all();
     }
 
     public function instanceLogFile(Cluster $cluster, string $name, string $file): string
     {
         $encoded = rawurlencode($name);
-        $encodedFile = rawurlencode($file);
+        // A log name may carry a subpath (e.g. "exec-output/exec_x.stdout"); encode
+        // each segment so the slashes survive as real path separators.
+        $encodedFile = implode('/', array_map('rawurlencode', explode('/', $file)));
 
         $response = $this->request($cluster)->get("/1.0/instances/{$encoded}/logs/{$encodedFile}");
         $response->throw();
