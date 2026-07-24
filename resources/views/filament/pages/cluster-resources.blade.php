@@ -1,7 +1,7 @@
 <x-filament-panels::page>
     <div wire:poll.30s="loadData"></div>
 
-    <div wire:ignore x-data="resourcesView(@js($clusters), @js($pools), @js($volumes), @js($networks), @js($profiles))">
+    <div wire:ignore x-data="resourcesView(@js($clusters), @js($pools), @js($volumes), @js($networks), @js($profiles), @js($this->rowActionGates()))">
 
         <div style="margin-bottom:1rem;">
             <div style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;opacity:.5;margin-bottom:.5rem;">
@@ -131,7 +131,7 @@
                                     </template>
                                     <template x-if="col.field === 'actions'">
                                         <span style="display:inline-flex;gap:.4rem;">
-                                            <template x-if="tab === 'volumes' && row.type === 'custom'">
+                                            <template x-if="tab === 'volumes' && row.type === 'custom' && gates['volume.delete']">
                                                 <button @click="$wire.mountAction('deleteVolume', { cluster: row.cluster, pool: row.pool, name: row.name })"
                                                     style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #ef444466;background:#ef444414;color:#ef4444;"
                                                     x-text="@js(__('common.actions.delete'))"></button>
@@ -141,18 +141,22 @@
                                             </template>
                                             <template x-if="tab === 'networks' && row.managed">
                                                 <span style="display:inline-flex;gap:.4rem;">
-                                                    <button @click="$wire.mountAction('editNetwork', { cluster: row.cluster, name: row.name })"
-                                                        style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #f59e0b66;background:#f59e0b14;color:#f59e0b;"
-                                                        x-text="@js(__('common.actions.edit'))"></button>
-                                                    <button @click="$wire.mountAction('deleteNetwork', { cluster: row.cluster, cluster_label: row.cluster_label, name: row.name })"
-                                                        style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #ef444466;background:#ef444414;color:#ef4444;"
-                                                        x-text="@js(__('common.actions.delete'))"></button>
+                                                    <template x-if="gates['network.update']">
+                                                        <button @click="$wire.mountAction('editNetwork', { cluster: row.cluster, name: row.name })"
+                                                            style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #f59e0b66;background:#f59e0b14;color:#f59e0b;"
+                                                            x-text="@js(__('common.actions.edit'))"></button>
+                                                    </template>
+                                                    <template x-if="gates['network.delete']">
+                                                        <button @click="$wire.mountAction('deleteNetwork', { cluster: row.cluster, cluster_label: row.cluster_label, name: row.name })"
+                                                            style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #ef444466;background:#ef444414;color:#ef4444;"
+                                                            x-text="@js(__('common.actions.delete'))"></button>
+                                                    </template>
                                                 </span>
                                             </template>
                                             <template x-if="tab === 'networks' && !row.managed">
                                                 <span style="opacity:.4;font-size:.8rem;">—</span>
                                             </template>
-                                            <template x-if="tab === 'profiles'">
+                                            <template x-if="tab === 'profiles' && gates['profile.update']">
                                                 <button @click="$wire.mountAction('editProfile', { cluster: row.cluster, name: row.name, used_by: row.used_by })"
                                                     style="font-size:.75rem;padding:.2rem .6rem;border-radius:.35rem;cursor:pointer;border:1px solid #f59e0b66;background:#f59e0b14;color:#f59e0b;"
                                                     x-text="@js(__('resources.profiles.actions.edit'))"></button>
@@ -201,13 +205,14 @@
     </div>
 
     <script>
-        function resourcesView(clusters, pools, volumes, networks, profiles) {
+        function resourcesView(clusters, pools, volumes, networks, profiles, gates) {
             return {
                 clusters,
                 pools,
                 volumes,
                 networks,
                 profiles,
+                gates,
                 tab: 'volumes',
                 search: '',
                 volType: 'custom',

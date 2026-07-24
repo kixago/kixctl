@@ -501,6 +501,24 @@ class ClusterResources extends Page implements HasActions, HasSchemas
         return $user?->can($permission) ?? false;
     }
 
+    /**
+     * Boolean permission map handed to the Resources table's Alpine component so
+     * per-row action buttons are hidden for roles that cannot use them. Presentation
+     * only — every action still refuses at the method level; this just stops drawing a
+     * button the operator would only be told "no" on. Read once at initial render (the
+     * Alpine root is wire:ignore, so it never re-morphs and permissions don't change
+     * mid-session).
+     */
+    public function rowActionGates(): array
+    {
+        return [
+            'volume.delete' => $this->userCan('volume.delete'),
+            'network.update' => $this->userCan('network.update'),
+            'network.delete' => $this->userCan('network.delete'),
+            'profile.update' => $this->userCan('profile.update'),
+        ];
+    }
+
     private function tryLoad(array &$entry, Cluster $cluster, string $whatKey, array $tabs, \Closure $fn): array
     {
         try {
