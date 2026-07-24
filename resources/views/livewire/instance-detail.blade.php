@@ -110,9 +110,7 @@
                     @forelse ($attachedProfiles as $profile)
                         <span style="display:inline-flex;align-items:center;gap:.15rem;font-size:.75rem;padding:.15rem .3rem .15rem .5rem;border-radius:.35rem;background:rgba(99,102,241,.12);color:#818cf8;font-family:monospace;">
                             {{ $profile }}
-                            @if (count($attachedProfiles) > 1)
-                                {{ ($this->detachProfileAction)(['profile' => $profile]) }}
-                            @endif
+                            {{ ($this->detachProfileAction)(['profile' => $profile]) }}
                         </span>
                     @empty
                         <span style="opacity:.5;font-size:.8rem;">{{ __('instances.detail.profiles.empty') }}</span>

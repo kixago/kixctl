@@ -47,6 +47,7 @@ return [
             'detach_action' => 'Detach profile',
             'detach_heading' => 'Detach profile',
             'detach_description' => 'Detaching “:profile” removes the devices and configuration it provides from “:name”. Some changes apply immediately; others take effect when the instance next restarts. You can attach it again at any time.',
+            'detach_last_description' => 'This is the only profile attached to “:name”. Detaching “:profile” removes the disk, network, and other configuration it provides, leaving the instance with no profile inheritance — it may fail to start unless it defines its own devices. Consider attaching a replacement first. Are you absolutely sure?',
         ],
         'config' => [
             'heading' => 'Configuration',
@@ -158,8 +159,6 @@ return [
         'profile_detached_title' => 'Profile detached',
         'unauthorized_profile_attach' => 'You do not have permission to attach profiles.',
         'unauthorized_profile_detach' => 'You do not have permission to detach profiles.',
-        'detach_last_profile_title' => 'Cannot detach the last profile',
-        'detach_last_profile_body' => 'An instance must keep at least one profile. Attach another profile before detaching this one.',
         'restarting_to_apply' => 'Restarting instance to apply changes…',
         'log_load_failed_title' => 'Could not load log',
         'creating_snapshot' => 'Creating snapshot “:snapshot”…',

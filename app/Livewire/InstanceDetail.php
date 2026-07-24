@@ -389,10 +389,17 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
             ->visible(fn (): bool => $this->userCan('profile.detach'))
             ->requiresConfirmation()
             ->modalHeading(__('instances.detail.profiles.detach_heading'))
-            ->modalDescription(fn (array $arguments): string => __('instances.detail.profiles.detach_description', [
-                'profile' => $arguments['profile'] ?? '',
-                'name' => $this->name,
-            ]))
+            ->modalDescription(function (array $arguments): string {
+                $current = data_get($this->config, 'profiles', []);
+                $key = count($current) <= 1
+                    ? 'instances.detail.profiles.detach_last_description'
+                    : 'instances.detail.profiles.detach_description';
+
+                return __($key, [
+                    'profile' => $arguments['profile'] ?? '',
+                    'name' => $this->name,
+                ]);
+            })
             ->action(function (array $arguments) {
                 if (! $this->userCan('profile.detach')) {
                     Notification::make()->title(__('common.notifications.unauthorized_title'))->body(__('instances.notifications.unauthorized_profile_detach'))->danger()->send();
@@ -402,10 +409,6 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
                 $profile = $arguments['profile'] ?? '';
                 $current = data_get($this->config, 'profiles', []);
                 if ($profile === '' || ! in_array($profile, $current, true)) {
-                    return;
-                }
-                if (count($current) <= 1) {
-                    Notification::make()->title(__('instances.notifications.detach_last_profile_title'))->body(__('instances.notifications.detach_last_profile_body'))->warning()->send();
                     return;
                 }
 

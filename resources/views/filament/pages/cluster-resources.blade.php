@@ -19,13 +19,11 @@
             </div>
         </div>
 
-        <div style="display:flex;gap:.25rem;border-bottom:1px solid #27272a;margin-bottom:1rem;">
+        <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1.25rem;">
             <template x-for="t in tabs" :key="t.key">
-                <button @click="switchTab(t.key)"
-                    style="padding:.55rem 1rem;font-size:.9rem;background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s ease,border-color .15s ease;"
-                    :style="tab === t.key ? 'border-bottom-color:#f59e0b;color:#fafafa;font-weight:600;' : 'color:#a1a1aa;font-weight:500;'">
+                <button @click="switchTab(t.key)" :style="chipStyle(tab === t.key, '#f59e0b')">
                     <span x-text="t.label"></span>
-                    <span style="margin-left:.3rem;font-size:.75rem;color:#71717a;" x-text="'(' + countFor(t.key) + ')'"></span>
+                    <span style="margin-left:.35rem;font-size:.78rem;opacity:.65;" x-text="'(' + countFor(t.key) + ')'"></span>
                 </button>
             </template>
         </div>
