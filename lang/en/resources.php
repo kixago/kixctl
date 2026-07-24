@@ -15,6 +15,7 @@ return [
         'summary_pools' => 'Storage pools are not shown for this cluster.',
         'restricted_cert_cause' => 'The server declined the request: :reason. This cluster runs Incus :version, which does not permit a restricted certificate to view storage information. Incus 7 and later provide a filtered view instead. This data becomes available if the cluster\'s administrator upgrades Incus, or grants the Kixctl certificate:fingerprint unrestricted access in the cluster\'s trust settings. Unrestricted access allows Kixctl to manage everything on that server, so that decision belongs to the administrator. Kixctl cannot raise its own level of access.',
         'declined_reason' => 'The server declined the request: :reason.',
+        'see_affected_tab' => 'See the affected tab.',
     ],
     'volumes' => [
         'types' => [

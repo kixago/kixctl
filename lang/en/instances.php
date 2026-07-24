@@ -58,6 +58,8 @@ return [
             'boot_helper' => 'Takes effect on host boot.',
             'restart_now' => 'Restart instance now?',
             'restart_now_helper' => 'Applies changes that require a restart.',
+            'cpu_placeholder' => 'e.g. 2',
+            'memory_placeholder' => 'e.g. 4GiB',
         ],
         'rename' => [
             'heading' => 'Rename instance',

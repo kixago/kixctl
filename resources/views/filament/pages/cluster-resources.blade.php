@@ -62,7 +62,7 @@
         </template>
 
         <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
-            <input type="text" x-model="search" :placeholder="'Search ' + (tabs.find(t => t.key === tab)?.label || '') + '…'"
+            <input type="text" x-model="search" :placeholder="@js(__('resources.phrases.search_placeholder')).replace(':tab', (tabs.find(t => t.key === tab)?.label || ''))"
                 style="flex:1;padding:.55rem .9rem;border-radius:.5rem;border:1px solid #3f3f46;background:transparent;color:inherit;font-size:.9rem;">
             <span style="opacity:.5;font-size:.85rem;white-space:nowrap;" x-text="filtered.length + ' ' + @js(__('common.phrases.shown'))"></span>
             <button x-show="selectedClusters.length || search || volType" @click="clearAll()"
@@ -319,7 +319,7 @@
                 chipTitle(c) {
                     if (!c.reachable) return @js(__('common.status.unreachable')) + ': ' + (c.error || @js(__('common.status.failed')));
                     if (c.partial && c.partial.length) {
-                        return c.partial.map(p => p.summary + ' See the affected tab.').join('\n');
+                        return c.partial.map(p => p.summary + ' ' + @js(__('resources.notice.see_affected_tab'))).join('\n');
                     }
                     return '';
                 },

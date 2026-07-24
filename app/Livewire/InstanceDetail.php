@@ -248,11 +248,11 @@ class InstanceDetail extends Component implements HasActions, HasSchemas
                 TextInput::make('limits_cpu')
                     ->label(__('instances.create.cpu_limit_label'))
                     ->helperText(__('instances.detail.config.cpu_helper'))
-                    ->placeholder('e.g. 2'),
+                    ->placeholder(__('instances.detail.config.cpu_placeholder')),
                 TextInput::make('limits_memory')
                     ->label(__('instances.create.memory_limit_label'))
                     ->helperText(__('instances.detail.config.memory_helper'))
-                    ->placeholder('e.g. 4GiB'),
+                    ->placeholder(__('instances.detail.config.memory_placeholder')),
                 Toggle::make('security_nesting')
                     ->label(__('instances.create.security_nesting_label'))
                     ->helperText(__('instances.detail.config.nesting_helper')),
