@@ -7,7 +7,6 @@ use App\Models\ProfileRestartFlag;
 use App\Services\Incus\Cluster;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
-use App\Services\Incus\RestartImpact;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -476,11 +475,11 @@ class ClusterResources extends Page implements HasActions, HasSchemas
                     $oldConfig = $incus->profile($cluster, $name)['config'] ?? [];
                     $incus->updateProfile($cluster, $name, $config, $data['description'] ?? '');
 
-                    // Advisory: record which inheriting instances now run stale config
-                    // (or clear the flag if nothing restart-requiring changed). Never
-                    // let a flag-write failure fail the edit itself.
+                    // Advisory: reconcile which inheriting instances now run stale
+                    // config against what they're running (clearing keys edited back
+                    // to their baseline). Never let a flag-write failure fail the edit.
                     try {
-                        ProfileRestartFlag::sync($cluster->key, $name, RestartImpact::analyze($oldConfig, $config));
+                        ProfileRestartFlag::sync($cluster->key, $name, $oldConfig, $config);
                     } catch (\Throwable $e) {
                         report($e);
                     }

@@ -29,14 +29,21 @@ class RestartImpact
     private const BOOLEAN_KEYS = ['security.nesting'];
 
     /**
-     * Compare a profile's config before and after an edit. Returns the restart
-     * impact, or null when nothing that changed requires a restart.
+     * Reconcile a profile's config before and after an edit against the values its
+     * instances are actually running (the "baseline"), returning the keys still out
+     * of sync, or null when nothing needs a restart.
+     *
+     * The baseline for a key is the value inheriting instances hold: one already
+     * tracked from an earlier edit, or — for a key that was in sync before this edit
+     * — the value it held just before it. A key whose new value returns to its
+     * baseline is back in sync and drops out, so editing a change back clears it.
      *
      * @param  array<string, mixed>  $oldConfig
      * @param  array<string, mixed>  $newConfig
-     * @return array{types: list<string>, changes: list<array{key:string,to:string}>}|null
+     * @param  array<string, string|null>  $existingBaselines  key => tracked baseline
+     * @return array{types: list<string>, changes: list<array{key:string,baseline:string,to:string}>}|null
      */
-    public static function analyze(array $oldConfig, array $newConfig): ?array
+    public static function reconcile(array $oldConfig, array $newConfig, array $existingBaselines = []): ?array
     {
         $types = [];
         $changes = [];
@@ -50,11 +57,15 @@ class RestartImpact
                 $new = $new === 'true' ? 'true' : 'false';
             }
 
-            if ($old === $new) {
+            $baseline = (array_key_exists($key, $existingBaselines) && $existingBaselines[$key] !== null)
+                ? (string) $existingBaselines[$key]
+                : $old;
+
+            if ($new === $baseline) {
                 continue;
             }
 
-            $changes[] = ['key' => $key, 'to' => $new];
+            $changes[] = ['key' => $key, 'baseline' => $baseline, 'to' => $new];
             $types = array_merge($types, $affectedTypes);
         }
 
