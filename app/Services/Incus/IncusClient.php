@@ -292,8 +292,19 @@ class IncusClient
      * uploads them through the same cert-scoped transport as every other call — the host
      * is never touched directly.
      */
-    public function importImage(Cluster $cluster, string $metadataPath, string $rootfsPath, int $timeout = 600): string
+    public function importImage(Cluster $cluster, string $metadataPath, string $rootfsPath, int $timeout = 600, ?string $alias = null): string
     {
+        // Idempotent: if an alias is given and already resolves to an image,
+        // reuse its fingerprint. The immutable model imports the same content
+        // under the same per-revision alias, so re-running a deploy of the same
+        // commit must not fail on "image already exists".
+        if ($alias !== null) {
+            $existing = $this->imageFingerprintByAlias($cluster, $alias);
+            if ($existing !== null) {
+                return $existing;
+            }
+        }
+
         foreach (['metadata' => $metadataPath, 'rootfs' => $rootfsPath] as $label => $path) {
             if (! is_readable($path)) {
                 throw new \RuntimeException("Image {$label} not readable: {$path}");
@@ -324,7 +335,62 @@ class IncusClient
             throw new \RuntimeException('Image import completed but returned no fingerprint');
         }
 
+        // Tag the freshly imported image with the per-revision alias so future
+        // deploys of the same commit are a no-op and the image carries a stable,
+        // human-readable handle that mirrors the instance name.
+        if ($alias !== null) {
+            $this->createImageAlias($cluster, $alias, $fingerprint);
+        }
+
         return $fingerprint;
+    }
+
+    /**
+     * Resolve an image alias to its target fingerprint, or null if the alias
+     * does not exist. Lets importImage short-circuit a duplicate per revision.
+     */
+    public function imageFingerprintByAlias(Cluster $cluster, string $alias): ?string
+    {
+        $response = $this->request($cluster)->get('/1.0/images/aliases/'.rawurlencode($alias));
+        if ($response->status() === 404) {
+            return null;
+        }
+        $response->throw();
+
+        return $response->json('metadata.target');
+    }
+
+    /** Attach an alias to an image fingerprint (tolerates an existing alias). */
+    protected function createImageAlias(Cluster $cluster, string $alias, string $fingerprint): void
+    {
+        $response = $this->request($cluster)->post('/1.0/images/aliases', [
+            'name' => $alias,
+            'target' => $fingerprint,
+        ]);
+        if ($response->status() === 409) {
+            return; // already present — fine for an idempotent re-deploy
+        }
+        $response->throw();
+    }
+
+    /** True if an instance of this name already exists on the cluster. */
+    public function instanceExists(Cluster $cluster, string $name): bool
+    {
+        $response = $this->request($cluster)->get('/1.0/instances/'.rawurlencode($name));
+        if ($response->status() === 404) {
+            return false;
+        }
+        $response->throw();
+
+        return true;
+    }
+
+    /** Best-effort primary global IPv4 of an instance from its live state, or null. */
+    public function instanceIpv4(Cluster $cluster, string $name): ?string
+    {
+        $state = $this->get($cluster, '/1.0/instances/'.rawurlencode($name).'/state');
+
+        return $this->primaryIpv4($state);
     }
 
     /**

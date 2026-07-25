@@ -30,4 +30,15 @@ return [
         'attr' => env('DEPLOY_BUILD_ATTR', 'default'),
     ],
 
+    'launch' => [
+        // Cluster key to deploy into. Empty = the first active cluster (matches
+        // the create-instance form's default). Set once there is more than one.
+        'cluster' => env('DEPLOY_LAUNCH_CLUSTER', ''),
+
+        // Cluster member the instance is placed on (mandatory on a cluster).
+        // First cut: everything lands on powerhouse; a per-deploy target picker
+        // is a later slice.
+        'target' => env('DEPLOY_LAUNCH_TARGET', 'powerhouse'),
+    ],
+
 ];
