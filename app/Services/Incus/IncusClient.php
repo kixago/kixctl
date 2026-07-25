@@ -281,6 +281,77 @@ class IncusClient
         $this->waitForOperation($cluster, $response->json('operation'), $timeout);
     }
 
+    /**
+     * Import a locally built split image (metadata tarball + container rootfs) into the
+     * cluster over the REST API and return its fingerprint. This is the REST-native
+     * equivalent of `incus image import <metadata> <rootfs>`: a multipart POST to
+     * /1.0/images with the two parts named exactly "metadata" and "rootfs" (container
+     * rootfs). The call is async; the completed operation carries the fingerprint.
+     *
+     * The builder produces these two files on the build host; Laravel reads them and
+     * uploads them through the same cert-scoped transport as every other call — the host
+     * is never touched directly.
+     */
+    public function importImage(Cluster $cluster, string $metadataPath, string $rootfsPath, int $timeout = 600): string
+    {
+        foreach (['metadata' => $metadataPath, 'rootfs' => $rootfsPath] as $label => $path) {
+            if (! is_readable($path)) {
+                throw new \RuntimeException("Image {$label} not readable: {$path}");
+            }
+        }
+
+        $response = $this->request($cluster)
+            ->timeout($timeout + 5)
+            ->attach('metadata', file_get_contents($metadataPath), 'metadata.tar.xz')
+            ->attach('rootfs', file_get_contents($rootfsPath), 'rootfs.tar.xz')
+            ->post('/1.0/images');
+        $response->throw();
+
+        // Async operation — wait and pull the fingerprint from its result metadata.
+        $operation = $response->json('operation');
+        $wait = $this->request($cluster)
+            ->timeout($timeout + 5)
+            ->get(rtrim((string) $operation, '/').'/wait', ['timeout' => $timeout]);
+        $wait->throw();
+
+        $result = $wait->json('metadata', []);
+        if (($result['status'] ?? '') === 'Failure') {
+            throw new \RuntimeException($result['err'] ?? 'Image import failed');
+        }
+
+        $fingerprint = $result['metadata']['fingerprint'] ?? null;
+        if (! $fingerprint) {
+            throw new \RuntimeException('Image import completed but returned no fingerprint');
+        }
+
+        return $fingerprint;
+    }
+
+    /**
+     * REST-native equivalent of `incus launch <image> <name> -p <profile>
+     * -c security.nesting=true --target <host>`: create an instance from an imported
+     * image fingerprint (nesting on by default — mandatory for NixOS containers), placed
+     * on an explicit cluster member (required on a cluster), then start it.
+     */
+    public function launchBuiltImage(
+        Cluster $cluster,
+        string $name,
+        string $fingerprint,
+        string $target,
+        array $profiles = ['power'],
+        array $config = [],
+        int $timeout = 300
+    ): void {
+        $this->createInstance($cluster, [
+            'name' => $name,
+            'source' => ['type' => 'image', 'fingerprint' => $fingerprint],
+            'profiles' => $profiles,
+            'config' => array_merge(['security.nesting' => 'true'], $config),
+        ], $target, $timeout);
+
+        $this->setInstanceState($cluster, $name, 'start', 60);
+    }
+
     public function instance(Cluster $cluster, string $name): array
     {
         $encoded = rawurlencode($name);
