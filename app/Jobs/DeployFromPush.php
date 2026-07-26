@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\DeployAppConfig;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -103,6 +104,29 @@ class DeployFromPush implements ShouldQueue
         $target = (string) config('deploy.launch.target', 'powerhouse');
         $name = $this->instanceName();
 
+        // ── Injected config: per-app env carried into every revision ─────────
+        // Declared once in kixctl, delivered as systemd credentials so each value
+        // lands in the container's /run/credentials (never in the image). The
+        // kixctl-base env-bridge then exposes each as an environment variable.
+        // This is the mechanism that makes a fresh revision "pick up where it
+        // left off": every revision of an app gets the same injected config.
+        $credentials = DeployAppConfig::query()
+            ->where('app', $this->repository)
+            ->get()
+            ->mapWithKeys(fn (DeployAppConfig $c) => [
+                'systemd.credential.'.$c->key => (string) $c->value,
+            ])
+            ->all();
+
+        // Log only the KEYS, never the values.
+        Log::info('deploy.config', [
+            'instance' => $name,
+            'keys' => array_map(
+                fn (string $k) => str_replace('systemd.credential.', '', $k),
+                array_keys($credentials),
+            ),
+        ]);
+
         // ── Import the built image (idempotent per revision via its alias) ────
         try {
             $fingerprint = $incus->importImage(
@@ -131,7 +155,7 @@ class DeployFromPush implements ShouldQueue
                     'target' => $target,
                 ]);
             } else {
-                $incus->launchBuiltImage($cluster, $name, $fingerprint, $target);
+                $incus->launchBuiltImage($cluster, $name, $fingerprint, $target, config: $credentials);
             }
         } catch (\Throwable $e) {
             Log::error('deploy.launch_failed', [
