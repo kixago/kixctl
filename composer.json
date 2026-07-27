@@ -1,13 +1,16 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "kixago/kixctl",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "An opinionated control plane for Incus clusters: a virtualization fabric and an immutable, git-push application layer, in one control plane that cannot escalate its own privileges.",
     "keywords": [
-        "laravel",
-        "framework"
+        "incus",
+        "control-plane",
+        "immutable-deploy",
+        "self-hosted",
+        "laravel"
     ],
-    "license": "MIT",
+    "license": "AGPL-3.0-or-later",
     "require": {
         "php": "^8.3",
         "bezhansalleh/filament-shield": "^4.2",
