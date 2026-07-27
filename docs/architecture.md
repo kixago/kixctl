@@ -2,7 +2,6 @@
 
 _The durable technical picture of kixctl: how a deploy actually flows, where state and secrets
 live, and the invariants the whole trust story rests on. Companion to
-[`../decisions.md`](../decisions.md) (the per-decision reasoning, referenced here as D1–D15) and
 [`security/`](security/) (the Incus client-cert scope and ingress posture). This file is written to
 be stable: it describes the model, not the week's to-do list._
 
@@ -26,7 +25,7 @@ Two `Cluster` types exist and must not be confused: `App\Models\Cluster` (Eloque
 cert/key at rest, `toEndpoint()`) versus `App\Services\Incus\Cluster` (a runtime value object).
 `App\Services\Incus\IncusClient` operates on the _value object_ only.
 
-## 2. The immutable deploy model (D6)
+## 2. The immutable deploy model
 
 kixctl does not mutate a running deployment. Each push launches a **new** immutable instance named
 `<repo leaf>-<sha7>` (for example `demo-app-0b56f10`), sanitized to a valid Incus name. The deploy
@@ -42,7 +41,7 @@ tracking layer to bolt on. The future cutover/revert machinery reads existing da
 
 ### The deploy flow
 
-The spine is built as ordered slices (D1), Caddy deliberately last because it is the thorniest
+The spine is built as ordered slices, Caddy deliberately last because it is the thorniest
 surface and touches a second host:
 
 ```
@@ -57,7 +56,7 @@ git push
   │           └─ nix build …system.build.metadata + .tarball → {"metadata":…,"rootfs":…}
   │
   ├─ resolve  cluster (config deploy.launch.cluster, default first-active)
-  │           target  (config deploy.launch.target, default powerhouse)     (D8)
+  │           target  (config deploy.launch.target, default powerhouse)
   │
   ├─ config   DeployAppConfig rows for this app → systemd.credential.<KEY> map   (§5)
   │
@@ -66,14 +65,14 @@ git push
   └─ launch   IncusClient::launchBuiltImage(cluster, <repo>-<sha7>, fingerprint,
               target, config: credentials)     — create + start, immutable
   │
-  ▼  [slice D, next]  Caddy route → the running revision       (D14)
+  ▼  [slice D, next]  Caddy route → the running revision
 ```
 
 `DeployFromPush` is `tries = 1` on purpose: a deploy is never safe to auto-retry blindly. Every
 failure path (`build_failed`, `build_bad_output`, `no_cluster`, `import_failed`, `launch_failed`)
 logs and returns rather than throwing into a retry.
 
-### Webhook authentication (D2)
+### Webhook authentication
 
 The trigger endpoint lives on the stateless `api` group — no session, no CSRF; the _signature_ is
 the auth, not a logged-in user. Forgejo signs the **raw** request body with HMAC-SHA256 and sends
@@ -83,7 +82,7 @@ parsed array would change bytes and break the HMAC. The shared secret is **opera
 identical in the Forgejo webhook form and `FORGEJO_WEBHOOK_SECRET` (`config/deploy.php`); Forgejo
 does not generate it. Only pushes to the repository's default branch are deployed.
 
-> Operational note (D3): Forgejo's `[webhook] ALLOWED_HOST_LIST` blocks private IPs by default. The
+> Operational note: Forgejo's `[webhook] ALLOWED_HOST_LIST` blocks private IPs by default. The
 > fix is to scope it to the cluster's subnet (e.g. `"external,192.168.2.0/24"`), which is an
 > anti-SSRF guard — not a TLS problem, though it first reads like one.
 
@@ -108,7 +107,7 @@ posture is _containment, not invulnerability_, and a scoped identity is what mak
 
 The build is the one host-touching step, and it is fenced two ways.
 
-**Not a general shell (D4).** The job invokes `scripts/kixctl-build` as an **argument array** via
+**Not a general shell.** The job invokes `scripts/kixctl-build` as an **argument array** via
 Laravel's `Process::run([...])`. Symfony Process with an array execs the binary directly and escapes
 each argument — it exists precisely to replace `shell_exec`. So kixctl can run _only that one
 program, only with typed arguments_. The program itself validates every input: the git flakeref
@@ -118,7 +117,7 @@ hardcoded). Pinning to `?rev=<sha>` makes Nix fetch the repo hermetically at the
 local clone, no "whatever `main` is right now" ambiguity. Nix fetches over `git+https` anonymously
 from the public repo, independent of the operator's SSH-only push.
 
-**Never as root (D5).** The deploy pipeline runs as **one unprivileged service user**, owns its own
+**Never as root.** The deploy pipeline runs as **one unprivileged service user**, owns its own
 `~/.cache/nix`, and **never invokes `nix` as root** — the nix-daemon does the privileged store
 writes; `nix build` never needs root. Root-owned cache files from a prior `sudo nix` run once
 blocked an unprivileged build; the rule is that this must be impossible _by construction_, not by
@@ -126,7 +125,7 @@ vigilance. On the appliance this becomes a real systemd unit (`User=`, `CacheDir
 `StateDirectory=`) created at first boot, so ownership is correct from the start. This invariant
 sits next to "kixctl cannot self-escalate."
 
-## 5. The state boundary (D10) and secret/config delivery (D11)
+## 5. The state boundary and secret/config delivery
 
 **The immutable unit holds no durable state.** State lives outside it — a database it connects to.
 Keeping a database _inside_ a disposable unit would force a SQL dump/restore on every update
@@ -141,10 +140,10 @@ state lives — plus secrets and env — is stored per app in `deploy_app_config
 (`App\Models\DeployAppConfig`), keyed by app + key, the value `encrypted` at rest (same Laravel
 `encrypted` cast as the cluster certs). At launch, `DeployFromPush` loads the app's rows and injects
 each as a file pushed into the container credstore (`/etc/credstore/<KEY>`, 0400 root-only), between instance create and start. Because config is applied at instance
-**create**, changing a value takes effect on the **next revision**, not a running one (D15) — a
+**create**, changing a value takes effect on the **next revision**, not a running one — a
 config change is itself a deploy trigger, which is exactly right for an immutable model.
 
-**Delivery is via systemd credentials, not env or image (D11).** The injected values land in the
+**Delivery is via systemd credentials, not env or image.** The injected values land in the
 container's `/run/credentials/@system/` (0400, root-only) — never baked into the image, never in the
 process tree by default. The app's NixOS service pulls them in with `ImportCredential=*` (a wildcard,
 so env vars can be added without rebuilding the image) and a small **env-bridge** wrapper exports
@@ -172,7 +171,7 @@ there before start would be wiped, whereas `/etc` persists — verified live on 
 at-rest encryption (`systemd.credential-binary.*` + `systemd-creds`, TPM sealing) is the deferred
 multi-tenant/enterprise tier.
 
-## 6. The secret chain (D12)
+## 6. The secret chain
 
 Three layers, each with the right tool for whether a secret exists at build time or run time:
 
@@ -189,7 +188,7 @@ specific machine's config at build time, but a user's runtime-typed `DATABASE_UR
 image-build time and must stay generic across every deployment. The runtime-native equivalent of
 sops here is `systemd-creds` encryption — the multi-tenant/enterprise hardening, not the first cut.
 
-## 7. The three-tier database direction (D13)
+## 7. The three-tier database direction
 
 How a deployed app gets a database, cheapest → richest, built in this order:
 
@@ -202,8 +201,8 @@ How a deployed app gets a database, cheapest → richest, built in this order:
    path; the only new part is standing up the DB container.
 3. **Managed / hosted DB** (paid, later): kixctl runs Postgres-as-a-service. Real revenue, but it is
    option 2 pointed at a kixctl-operated target — opt-in convenience, never the default, never the
-   only path (data leaving the user's cluster contradicts the self-hosted thesis if forced). It fits
-   the monetization axis: cap scale and convenience, never capability.
+   only path (data leaving the user's cluster contradicts the self-hosted thesis if forced). It preserves the
+   core invariant: the self-hosted path stays fully capable.
 
 Same injection machinery underneath all three. Build 1 first (nearly free, unblocks everything),
 then 2, and hold 3 until a buyer asks.
@@ -248,7 +247,7 @@ both). Apps are built with `pkgs.buildNpmPackage` + `pkgs.importNpmLock`, which 
 hashes already in the lockfile and needs **no `npmDepsHash`** — this is what lets the builder
 compile whatever a user pushes with no human in the loop computing a hash.
 
-## 10. The appliance direction (D9)
+## 10. The appliance direction
 
 The self-hosted **appliance is the headline distribution**: boot an image → kixctl installs itself →
 a first-run wizard sets it up → "a better Proxmox," with Incus invisible underneath. It is the
@@ -276,13 +275,11 @@ architecture**, which is what makes a HIPAA or SOC 2 story credible rather than 
   path.
 
 Proxmox, by contrast, has no deployment model, no immutability, and no secret architecture to point
-at. That gap is the substrate kixctl's compliance and enterprise story is built on — see
-[`../differentiation.md`](../differentiation.md) for the market framing and
-[`../monetization.md`](../monetization.md) for where enterprise governance sits on the paid axis.
+at. That gap is the substrate kixctl's compliance and enterprise story is built on.
 
 ---
 
 _This document is regenerable: its claims trace to the code (`app/Jobs/DeployFromPush.php`,
 `app/Services/Deploy/`, `app/Services/Incus/IncusClient.php`, `scripts/kixctl-build`,
-`config/deploy.php`, `config/license.php`) and to the decision ledger (`../decisions.md`, D1–D15).
-When the architecture changes, update this file and the ledger together._
+`config/deploy.php`, `config/license.php`).
+When the architecture changes, update this file to match._
