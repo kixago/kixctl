@@ -416,7 +416,37 @@ class IncusClient
             'config' => array_merge(['security.nesting' => 'true'], $config),
         ], $target, $timeout);
 
+        // 2) Deliver per-app config as credstore files (0400 root-only) under
+        //    /etc/credstore/<KEY>. systemd's ImportCredential=* enumerates that
+        //    directory at boot as a system credential, so the app side is
+        //    unchanged from the old systemd.credential.* delivery — the value is
+        //    simply no longer visible in `incus config show`. /etc is used, not
+        //    /run/credstore, because /run is a fresh tmpfs at boot and a file
+        //    pushed there before start would be wiped. Verified end to end.
+        if ($credentials !== []) {
+            $dir = '/etc/credstore';
+            $this->ensureInstanceDirectory($cluster, $name, $dir, 0700);
+            foreach ($credentials as $key => $value) {
+                $this->assertCredentialKey($key);
+                $this->pushInstanceFile($cluster, $name, "{$dir}/{$key}", (string) $value, 0, 0, 0400);
+            }
+        }
+
+        // 3) Start — the credentials are now present for ImportCredential=*.
         $this->setInstanceState($cluster, $name, 'start', 60);
+    }
+
+    /**
+     * Guard a credential name before it becomes a credstore filename. systemd
+     * credential names are filenames, so a slash, "..", control chars, or
+     * anything outside the safe set could write outside /etc/credstore or be
+     * silently ignored by systemd. Fail loudly instead.
+     */
+    protected function assertCredentialKey(string $key): void
+    {
+        if ($key === '' || str_contains($key, '..') || ! preg_match('/^[A-Za-z0-9_.-]+$/', $key)) {
+            throw new \InvalidArgumentException("Unsafe credential key: {$key}");
+        }
     }
 
     // ── Instance file operations (REST files API) ────────────────────────
