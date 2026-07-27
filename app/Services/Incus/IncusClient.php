@@ -3,6 +3,7 @@
 namespace App\Services\Incus;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 class IncusClient
@@ -418,6 +419,83 @@ class IncusClient
         $this->setInstanceState($cluster, $name, 'start', 60);
     }
 
+    // ── Instance file operations (REST files API) ────────────────────────
+    // REST-native equivalent of `incus file push` / `incus file create`. For
+    // CONTAINERS these operations are handled directly by Incus and work
+    // whether the instance is running or stopped (Incus mounts the rootfs) —
+    // which is exactly what lets credstore delivery slot between create and
+    // start. Request shape verified against the Incus client
+    // (client/incus_instances.go, ProtocolIncus.CreateInstanceFile):
+    //   POST /1.0/instances/{name}/files?path=<path>
+    //   X-Incus-uid / X-Incus-gid (decimal), X-Incus-mode (octal, %04o),
+    //   X-Incus-type (file|directory|symlink), X-Incus-write (overwrite|append).
+    // The push is a SYNC response (no async operation), so nothing to wait on;
+    // a non-2xx simply throws.
+    //
+    // Incus <7.1 regression (#3329): `file push` with uid/gid but no explicit
+    // mode drops the mode to 0. We ALWAYS send an explicit mode and the fix
+    // shipped in 7.1, so it can't bite us — but never omit the mode.
+    public function pushInstanceFile(
+        Cluster $cluster,
+        string $instance,
+        string $path,
+        string $content,
+        int $uid = 0,
+        int $gid = 0,
+        int $mode = 0600,
+        string $type = 'file',
+        string $writeMode = 'overwrite',
+        int $timeout = 30,
+    ): void {
+        $enc = rawurlencode($instance);
+        $url = "/1.0/instances/{$enc}/files?path=".rawurlencode($path);
+
+        $headers = [
+            'X-Incus-uid' => (string) $uid,
+            'X-Incus-gid' => (string) $gid,
+            'X-Incus-mode' => sprintf('%04o', $mode),
+        ];
+        if ($type !== '') {
+            $headers['X-Incus-type'] = $type;
+        }
+        if ($writeMode !== '') {
+            $headers['X-Incus-write'] = $writeMode;
+        }
+
+        $response = $this->request($cluster)
+            ->timeout($timeout)
+            ->withHeaders($headers)
+            ->withBody($content, 'application/octet-stream')
+            ->post($url);
+
+        $response->throw();
+    }
+
+    /** True if a path already exists inside the instance (HEAD on the files API). */
+    public function instancePathExists(Cluster $cluster, string $instance, string $path): bool
+    {
+        $enc = rawurlencode($instance);
+        $url = "/1.0/instances/{$enc}/files?path=".rawurlencode($path);
+
+        $response = $this->request($cluster)->head($url);
+        if ($response->status() === 404) {
+            return false;
+        }
+        $response->throw();
+
+        return true;
+    }
+
+    /** Create a directory inside the instance if it isn't already present (idempotent). */
+    public function ensureInstanceDirectory(Cluster $cluster, string $instance, string $path, int $mode = 0700): void
+    {
+        if ($this->instancePathExists($cluster, $instance, $path)) {
+            return;
+        }
+
+        $this->pushInstanceFile($cluster, $instance, $path, '', 0, 0, $mode, 'directory', '');
+    }
+
     public function instance(Cluster $cluster, string $name): array
     {
         $encoded = rawurlencode($name);
@@ -570,6 +648,62 @@ class IncusClient
         $response = $this->request($cluster)->delete("/1.0/instances/{$i}/snapshots/{$s}");
         $response->throw();
         $this->waitForOperation($cluster, $response->json('operation'), $timeout);
+    }
+
+    // ── Streaming (async) snapshot variants ──────────────────────────────
+    // These START the operation and hand back its URL WITHOUT blocking; the
+    // StreamInstanceOperation job polls operation() every 0.5s and broadcasts
+    // progress over Reverb. The synchronous createSnapshot/restoreSnapshot/
+    // deleteSnapshot above are the blocking equivalents. Incus answers an async
+    // verb with {"operation":"/1.0/operations/<uuid>", ...}; we return that URL.
+    public function startCreateSnapshot(Cluster $cluster, string $instance, string $snapshot): string
+    {
+        $encoded = rawurlencode($instance);
+        $response = $this->request($cluster)->post("/1.0/instances/{$encoded}/snapshots", [
+            'name' => $snapshot,
+            'stateful' => false,
+        ]);
+        $response->throw();
+
+        return $this->operationUrl($response);
+    }
+
+    public function startRestoreSnapshot(Cluster $cluster, string $instance, string $snapshot): string
+    {
+        $encoded = rawurlencode($instance);
+        $response = $this->request($cluster)->put("/1.0/instances/{$encoded}", [
+            'restore' => $snapshot,
+        ]);
+        $response->throw();
+
+        return $this->operationUrl($response);
+    }
+
+    public function startDeleteSnapshot(Cluster $cluster, string $instance, string $snapshot): string
+    {
+        $i = rawurlencode($instance);
+        $s = rawurlencode($snapshot);
+        $response = $this->request($cluster)->delete("/1.0/instances/{$i}/snapshots/{$s}");
+        $response->throw();
+
+        return $this->operationUrl($response);
+    }
+
+    /** Current state of an async operation by its URL (the Incus operation object). */
+    public function operation(Cluster $cluster, string $operationUrl): array
+    {
+        return $this->get($cluster, $operationUrl);
+    }
+
+    /** Pull the async operation URL out of a start response, or fail loudly. */
+    protected function operationUrl(Response $response): string
+    {
+        $url = $response->json('operation');
+        if (! is_string($url) || $url === '') {
+            throw new \RuntimeException('Incus did not return an async operation URL.');
+        }
+
+        return $url;
     }
 
     public function deleteInstance(Cluster $cluster, string $name, int $timeout = 60): void
