@@ -407,8 +407,12 @@ class IncusClient
         string $target,
         array $profiles = ['power'],
         array $config = [],
+        array $credentials = [],
         int $timeout = 300
     ): void {
+        // 1) Create the immutable revision — but do NOT start it yet. Per-app
+        //    config must be on disk in the credstore BEFORE PID1 boots and
+        //    enumerates it, so the sequence is create -> push -> start.
         $this->createInstance($cluster, [
             'name' => $name,
             'source' => ['type' => 'image', 'fingerprint' => $fingerprint],

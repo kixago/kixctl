@@ -14,7 +14,7 @@ kixctl is a Laravel + Livewire + Filament control plane whose **own state is Pos
 synced copy of Incus. There are exactly three layers, and the boundaries are not crossed:
 
 1. **The control plane** (Laravel/Filament) holds authority and its own state.
-2. **The Incus REST API** is the *only* backend. Laravel never touches the host and never the raw
+2. **The Incus REST API** is the _only_ backend. Laravel never touches the host and never the raw
    Incus socket — every cluster action is an HTTPS call to Incus.
 3. **Incus and the host** do the isolation and the privileged work.
 
@@ -24,7 +24,7 @@ Incus REST API" holds with no carve-outs in the control plane itself.
 
 Two `Cluster` types exist and must not be confused: `App\Models\Cluster` (Eloquent — encrypted
 cert/key at rest, `toEndpoint()`) versus `App\Services\Incus\Cluster` (a runtime value object).
-`App\Services\Incus\IncusClient` operates on the *value object* only.
+`App\Services\Incus\IncusClient` operates on the _value object_ only.
 
 ## 2. The immutable deploy model (D6)
 
@@ -33,7 +33,7 @@ kixctl does not mutate a running deployment. Each push launches a **new** immuta
 job **only ever adds a revision** — it never stops, deletes, or mutates a running one. Cutover,
 reaping, and revert are separate later slices that act on this identity.
 
-This is the product thesis expressed literally in the naming, and it is also *less* code and *more*
+This is the product thesis expressed literally in the naming, and it is also _less_ code and _more_
 correct for the first cut: no stop/delete/collision dance, no downtime window, and a revert target
 that is a whole intact container rather than a hoped-for reverse migration. Crucially, the
 running-revision identity is **legible from Incus itself**: `volatile.base_image` plus the `-<sha7>`
@@ -75,7 +75,7 @@ logs and returns rather than throwing into a retry.
 
 ### Webhook authentication (D2)
 
-The trigger endpoint lives on the stateless `api` group — no session, no CSRF; the *signature* is
+The trigger endpoint lives on the stateless `api` group — no session, no CSRF; the _signature_ is
 the auth, not a logged-in user. Forgejo signs the **raw** request body with HMAC-SHA256 and sends
 the hex digest in `X-Forgejo-Signature`. `WebhookSignature::valid()` verifies it with `hash_equals`
 (constant-time, to avoid a timing side-channel). Reading the raw body is mandatory: re-encoding the
@@ -97,12 +97,12 @@ kixctl authenticates to Incus with a **restricted TLS client certificate** (`res
   nothing more.
 - **Scope remediation is always the target cluster administrator's action**, never kixctl's.
 - **The whole deploy pipeline rides this same cert.** Confirmed live: image import
-  (`POST /1.0/images`) *and* launch both succeed over the ordinary restricted cert — no host-local
+  (`POST /1.0/images`) _and_ launch both succeed over the ordinary restricted cert — no host-local
   socket carve-out is needed for the builder.
 
 Full reasoning and the exact grant are in [`security/incus-scope.md`](security/incus-scope.md); the
 control plane is a web-facing target holding fleet authority (the "Coolify risk shape"), so the
-posture is *containment, not invulnerability*, and a scoped identity is what makes containment real.
+posture is _containment, not invulnerability_, and a scoped identity is what makes containment real.
 
 ## 4. The build-identity invariant (D4, D5)
 
@@ -110,8 +110,8 @@ The build is the one host-touching step, and it is fenced two ways.
 
 **Not a general shell (D4).** The job invokes `scripts/kixctl-build` as an **argument array** via
 Laravel's `Process::run([...])`. Symfony Process with an array execs the binary directly and escapes
-each argument — it exists precisely to replace `shell_exec`. So kixctl can run *only that one
-program, only with typed arguments*. The program itself validates every input: the git flakeref
+each argument — it exists precisely to replace `shell_exec`. So kixctl can run _only that one
+program, only with typed arguments_. The program itself validates every input: the git flakeref
 must be commit-pinned (`?rev=<sha>`), the attribute is charset-restricted, and `--kind` is
 whitelisted (`container` now; `vm` is the seam for the appliance, deliberately parameterized, not
 hardcoded). Pinning to `?rev=<sha>` makes Nix fetch the repo hermetically at the exact commit — no
@@ -121,7 +121,7 @@ from the public repo, independent of the operator's SSH-only push.
 **Never as root (D5).** The deploy pipeline runs as **one unprivileged service user**, owns its own
 `~/.cache/nix`, and **never invokes `nix` as root** — the nix-daemon does the privileged store
 writes; `nix build` never needs root. Root-owned cache files from a prior `sudo nix` run once
-blocked an unprivileged build; the rule is that this must be impossible *by construction*, not by
+blocked an unprivileged build; the rule is that this must be impossible _by construction_, not by
 vigilance. On the appliance this becomes a real systemd unit (`User=`, `CacheDirectory=`,
 `StateDirectory=`) created at first boot, so ownership is correct from the start. This invariant
 sits next to "kixctl cannot self-escalate."
@@ -129,10 +129,10 @@ sits next to "kixctl cannot self-escalate."
 ## 5. The state boundary (D10) and secret/config delivery (D11)
 
 **The immutable unit holds no durable state.** State lives outside it — a database it connects to.
-Keeping a database *inside* a disposable unit would force a SQL dump/restore on every update
+Keeping a database _inside_ a disposable unit would force a SQL dump/restore on every update
 (downtime scaling with data size; a failed restore is data loss on the happy path) — every
-immutable system that tried it abandoned it. The tell: *if it must be dumped, it is in the wrong
-place.* Once state is external, revisions swap freely and there is nothing to dump. kixctl's own
+immutable system that tried it abandoned it. The tell: _if it must be dumped, it is in the wrong
+place._ Once state is external, revisions swap freely and there is nothing to dump. kixctl's own
 control plane already works this way (its Postgres is external to every container), which is why the
 appliance "picks up where you left off" after a self-update.
 
@@ -140,7 +140,7 @@ appliance "picks up where you left off" after a self-update.
 state lives — plus secrets and env — is stored per app in `deploy_app_config`
 (`App\Models\DeployAppConfig`), keyed by app + key, the value `encrypted` at rest (same Laravel
 `encrypted` cast as the cluster certs). At launch, `DeployFromPush` loads the app's rows and injects
-each as an Incus `systemd.credential.<KEY>` instance key. Because config is applied at instance
+each as a file pushed into the container credstore (`/etc/credstore/<KEY>`, 0400 root-only), between instance create and start. Because config is applied at instance
 **create**, changing a value takes effect on the **next revision**, not a running one (D15) — a
 config change is itself a deploy trigger, which is exactly right for an immutable model.
 
@@ -159,16 +159,18 @@ injected **key names only, never values**.
 > revisions. Credential-name casing is preserved (`DATABASE_URL`, not lowercased), and
 > `DynamicUser` + `ImportCredential` interoperate.
 
-### Deferred: credstore hardening
+### Credstore delivery (hardened)
 
-Today the injected value is visible as plaintext in `incus config show` (instance config). For a
-single operator this is no new exposure — kixctl and the operator already hold the value — but it
-matters for multi-tenant, config backups, and screenshots. The planned fix keeps the
-systemd-credential choice and changes only *delivery*: push the value as a **file into the
-container's credstore** (`/run/credstore/…`) via the Incus files API instead of setting it as
-instance config. `ImportCredential` already searches the credstore, so the app side is untouched;
-the launch becomes create → push → start. This slots with the multi-tenant hardening tier
-(`systemd.credential-binary.*` + `systemd-creds` encryption for at-rest, and TPM sealing).
+The injected value is delivered as a **file pushed into the container credstore**
+(`/etc/credstore/<KEY>`, 0400 root-only) via the Incus files API, between instance **create** and
+**start** — so it never appears in `incus config show`. `ImportCredential=*` enumerates
+`/etc/credstore/` as a system-credential source (systemd.exec(5)), so the app side is untouched. The
+path is `/etc/credstore`, **not** `/run/credstore`: `/run` is a boot-time tmpfs and a file pushed
+there before start would be wiped, whereas `/etc` persists — verified live on the deploy base
+(pushed while stopped, present after boot, delivered into a service via
+`systemd-run -p ImportCredential=*`). The file is plaintext on the container's rootfs disk (0400);
+at-rest encryption (`systemd.credential-binary.*` + `systemd-creds`, TPM sealing) is the deferred
+multi-tenant/enterprise tier.
 
 ## 6. The secret chain (D12)
 
@@ -178,11 +180,11 @@ Three layers, each with the right tool for whether a secret exists at build time
   Postgres password, `APP_KEY`) → **sops-nix**, decrypted at NixOS activation. They exist at
   config-authoring time.
 - **Deployed-app secrets** (a user's `DATABASE_URL`) → **encrypted at rest in kixctl's Postgres**
-  under `APP_KEY` — and `APP_KEY` is *itself* a sops-nix secret, so app secrets are encrypted under a
+  under `APP_KEY` — and `APP_KEY` is _itself_ a sops-nix secret, so app secrets are encrypted under a
   sops-guarded key.
 - **Delivery into the container** → systemd credentials (§5).
 
-sops-nix structurally *cannot* reach the delivery layer: it decrypts committed ciphertext into a
+sops-nix structurally _cannot_ reach the delivery layer: it decrypts committed ciphertext into a
 specific machine's config at build time, but a user's runtime-typed `DATABASE_URL` does not exist at
 image-build time and must stay generic across every deployment. The runtime-native equivalent of
 sops here is `systemd-creds` encryption — the multi-tenant/enterprise hardening, not the first cut.
@@ -195,8 +197,8 @@ How a deployed app gets a database, cheapest → richest, built in this order:
    database the user already has via an injected `DATABASE_URL`. kixctl stores and runs nothing
    extra — zero liability, fully self-hosted.
 2. **kixctl provisions a DB container** (the Proxmox-killer): a persistent database container on the
-   user's *own* cluster — the one place a storage volume is correct and the unit is deliberately
-   *not* immutable — with its connection string injected into the app. Reuses the exact injection
+   user's _own_ cluster — the one place a storage volume is correct and the unit is deliberately
+   _not_ immutable — with its connection string injected into the app. Reuses the exact injection
    path; the only new part is standing up the DB container.
 3. **Managed / hosted DB** (paid, later): kixctl runs Postgres-as-a-service. Real revenue, but it is
    option 2 pointed at a kixctl-operated target — opt-in convenience, never the default, never the
@@ -210,14 +212,14 @@ then 2, and hold 3 until a buyer asks.
 
 Authorization is three independent layers — do not collapse them:
 
-1. **The Incus cert** — *what the kixctl service may ask Incus to do* (restricted, project-scoped;
+1. **The Incus cert** — _what the kixctl service may ask Incus to do_ (restricted, project-scoped;
    §3). This is the outer bound; nothing kixctl does can exceed it.
-2. **kixctl's own RBAC** — *which logged-in user may do what in kixctl.* Filament Shield plus
+2. **kixctl's own RBAC** — _which logged-in user may do what in kixctl._ Filament Shield plus
    per-verb refusals at the Livewire-method level (`->visible()` is presentation on top; the method
    refusal is the real fence). `super_admin` bypasses the gate via Shield's `Gate::before`. Roles
    are seeded per verb (e.g. `operator` gets create/update but not resource-destroying deletes;
    `profile.update` is admin-only as the widest blast radius).
-3. **Incus-native fine-grained authorization** (OpenFGA) — *optional, enterprise-only*, not part of
+3. **Incus-native fine-grained authorization** (OpenFGA) — _optional, enterprise-only_, not part of
    the base product.
 
 Related invariants that shape the UI: degradation is **per-capability, not per-cluster** (a denied
@@ -250,12 +252,12 @@ compile whatever a user pushes with no human in the loop computing a hash.
 
 The self-hosted **appliance is the headline distribution**: boot an image → kixctl installs itself →
 a first-run wizard sets it up → "a better Proxmox," with Incus invisible underneath. It is the
-`--kind vm` path of the *same* build machinery already proven on `--kind container`. First-boot is a
+`--kind vm` path of the _same_ build machinery already proven on `--kind container`. First-boot is a
 **bounded, one-time host-touching subsystem** (init Incus, mint the restricted cert, create the
 admin, set the domain); steady-state kixctl stays disciplined and cannot self-escalate. Two things
 not to conflate: the appliance **boots as a VM or bare metal** (it must not become VM-only), and the
 builder **emitting VM images as deploy targets** is a separate later extension. Both ride the same
-`nix build` engine. The repository is named *immutable-deploy* for a reason: NixOS atomic upgrade +
+`nix build` engine. The repository is named _immutable-deploy_ for a reason: NixOS atomic upgrade +
 rollback is exactly what an appliance needs.
 
 ## 11. Compliance posture
@@ -264,7 +266,7 @@ kixctl's security properties are not a feature bolted on for a checklist — the
 architecture**, which is what makes a HIPAA or SOC 2 story credible rather than aspirational:
 
 - **Immutable units** with per-revision identity legible from Incus itself → a real,
-  reconstructable change history (*what ran, when, from which commit*).
+  reconstructable change history (_what ran, when, from which commit_).
 - **Secrets encrypted at rest** under a sops-guarded key, delivered as root-only systemd
   credentials, **never** baked into an image and logged only by key name.
 - **A control plane that cannot self-escalate** — a bounded, auditable blast radius if the web tier

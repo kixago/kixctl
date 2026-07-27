@@ -105,26 +105,23 @@ class DeployFromPush implements ShouldQueue
         $name = $this->instanceName();
 
         // ── Injected config: per-app env carried into every revision ─────────
-        // Declared once in kixctl, delivered as systemd credentials so each value
-        // lands in the container's /run/credentials (never in the image). The
-        // kixctl-base env-bridge then exposes each as an environment variable.
-        // This is the mechanism that makes a fresh revision "pick up where it
-        // left off": every revision of an app gets the same injected config.
+        // Declared once in kixctl, delivered into each revision as credstore
+        // files (/etc/credstore/<KEY>, 0400 root-only) pushed before the
+        // container starts. systemd's ImportCredential=* picks them up as system
+        // credentials and the kixctl-base env-bridge exposes each as an env var,
+        // so a fresh revision comes up already knowing where its state lives.
+        // Unlike the old systemd.credential.* instance key, the value is not
+        // visible in `incus config show`.
         $credentials = DeployAppConfig::query()
             ->where('app', $this->repository)
             ->get()
-            ->mapWithKeys(fn (DeployAppConfig $c) => [
-                'systemd.credential.'.$c->key => (string) $c->value,
-            ])
+            ->mapWithKeys(fn (DeployAppConfig $c) => [$c->key => (string) $c->value])
             ->all();
 
         // Log only the KEYS, never the values.
         Log::info('deploy.config', [
             'instance' => $name,
-            'keys' => array_map(
-                fn (string $k) => str_replace('systemd.credential.', '', $k),
-                array_keys($credentials),
-            ),
+            'keys' => array_keys($credentials),
         ]);
 
         // ── Import the built image (idempotent per revision via its alias) ────
@@ -155,7 +152,7 @@ class DeployFromPush implements ShouldQueue
                     'target' => $target,
                 ]);
             } else {
-                $incus->launchBuiltImage($cluster, $name, $fingerprint, $target, config: $credentials);
+                $incus->launchBuiltImage($cluster, $name, $fingerprint, $target, credentials: $credentials);
             }
         } catch (\Throwable $e) {
             Log::error('deploy.launch_failed', [
