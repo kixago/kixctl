@@ -21,5 +21,9 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // The self-contained default network (kixbr0). Idempotent; safe to
+        // re-run. Also runnable standalone: `php artisan db:seed --class=NetworkSeeder`.
+        $this->call(NetworkSeeder::class);
     }
 }
