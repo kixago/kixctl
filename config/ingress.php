@@ -41,14 +41,17 @@ return [
         // so caddy-server reaches it exactly like it reaches the apps today.
         'target' => env('INGRESS_DNS_TARGET', 'powerhouse'),
 
-        // Incus network the resolver attaches to. Empty = the profile default
-        // (the same bridge your apps use). Set only if you run apps on a
-        // different network than caddy-server can reach.
+        // The kixctl-managed network the resolver rides. Empty = the default
+        // network row (kixbr0). This is a network KEY (App\Models\Network), not
+        // a profile — the resolver's eth0 is placed on it as an explicit NIC
+        // device. Set only to pin the resolver to a different managed network.
         'network' => env('INGRESS_DNS_NETWORK', ''),
 
-        // Profiles applied to the resolver container. Defaults to the same
-        // profile your apps launch with, so it lands on the same reachable
-        // bridge caddy-server already talks to.
+        // NOTE: the resolver's ROOT-DISK profile is kixctl's OWN profile (`kix`),
+        // created out of the box on a pool kixctl auto-resolves — see
+        // config/networks.php 'profile'. The NETWORK comes from the instance NIC
+        // on the managed bridge, never a profile. This key is retained only for
+        // backward reference and is no longer read by CorednsProvisioner.
         'profiles' => ['power'],
 
         // Local flake kixctl builds the CoreDNS image from (via kixctl-build).

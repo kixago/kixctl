@@ -51,6 +51,22 @@
               networking.firewall.allowedTCPPorts = [ 53 ];
               networking.firewall.allowedUDPPorts = [ 53 ];
 
+              # ── Generic DHCP on the container's primary interface ──────────
+              # This is HALF of the honest fix for "no IPv4 lease": the managed
+              # bridge (Incus kixbr0) hands out the lease, and THIS asks for it.
+              # Product-generic — it matches en*/eth* and requests DHCP — and is
+              # deliberately NOT tied to any host interface name (never the
+              # operator's 40-eth0/LAN). Switch to systemd-networkd and disable
+              # the legacy global dhcpcd so exactly one requester is in play.
+              # Match shape is verbatim from nixpkgs' default
+              # network-interfaces-systemd.nix ("99-ethernet-default-dhcp").
+              networking.useNetworkd = true;
+              networking.useDHCP = false;
+              systemd.network.networks."99-ethernet-default-dhcp" = {
+                matchConfig.Name = [ "en*" "eth*" ];
+                networkConfig.DHCP = "yes";
+              };
+
               # Stateless resolver — match your fleet's if you prefer.
               system.stateVersion = lib.mkDefault "24.11";
             }

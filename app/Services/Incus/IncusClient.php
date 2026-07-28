@@ -270,6 +270,30 @@ class IncusClient
         ];
     }
 
+    /** True if a network of this name already exists on the cluster (managed or not). */
+    public function networkExists(Cluster $cluster, string $name): bool
+    {
+        $response = $this->request($cluster)->get('/1.0/networks/'.rawurlencode($name));
+        if ($response->status() === 404) {
+            return false;
+        }
+        $response->throw();
+
+        return true;
+    }
+
+    /** True if a profile of this name already exists on the cluster. */
+    public function profileExists(Cluster $cluster, string $name): bool
+    {
+        $response = $this->request($cluster)->get('/1.0/profiles/'.rawurlencode($name));
+        if ($response->status() === 404) {
+            return false;
+        }
+        $response->throw();
+
+        return true;
+    }
+
     public function createInstance(Cluster $cluster, array $payload, ?string $target = null, int $timeout = 300): void
     {
         $path = '/1.0/instances';
@@ -408,17 +432,31 @@ class IncusClient
         array $profiles = ['power'],
         array $config = [],
         array $credentials = [],
-        int $timeout = 300
+        int $timeout = 300,
+        ?string $network = null
     ): void {
         // 1) Create the immutable revision — but do NOT start it yet. Per-app
         //    config must be on disk in the credstore BEFORE PID1 boots and
         //    enumerates it, so the sequence is create -> push -> start.
-        $this->createInstance($cluster, [
+        $payload = [
             'name' => $name,
             'source' => ['type' => 'image', 'fingerprint' => $fingerprint],
             'profiles' => $profiles,
             'config' => array_merge(['security.nesting' => 'true'], $config),
-        ], $target, $timeout);
+        ];
+
+        // Place the instance on a specific managed network by overriding eth0 as
+        // an explicit NIC device. An instance-level device wins over any eth0 the
+        // profile defines, so the NETWORK comes from here — never borrowed from
+        // the operator's profile/LAN. Incus auto-configures address/DNS/NAT from
+        // the managed bridge (devices_nic + About networking, Incus docs).
+        if ($network !== null && $network !== '') {
+            $payload['devices'] = [
+                'eth0' => ['type' => 'nic', 'network' => $network],
+            ];
+        }
+
+        $this->createInstance($cluster, $payload, $target, $timeout);
 
         // 2) Deliver per-app config as credstore files (0400 root-only) under
         //    /etc/credstore/<KEY>. systemd's ImportCredential=* enumerates that
@@ -861,6 +899,30 @@ class IncusClient
     {
         $encoded = rawurlencode($name);
         $response = $this->request($cluster)->delete("/1.0/networks/{$encoded}");
+        $response->throw();
+    }
+
+    /**
+     * Create a profile. Synchronous, like the network writes. Profiles are not
+     * member-specific, so a single global POST creates it cluster-wide — no
+     * pending/target two-phase dance (unlike networks). kixctl uses this to own
+     * its own baseline profile (`kix`: a root disk on an auto-resolved pool),
+     * so a fresh box never has to borrow the operator's `default`/`power`.
+     */
+    public function createProfile(Cluster $cluster, string $name, array $devices = [], array $config = [], ?string $description = null): void
+    {
+        $body = ['name' => $name];
+        if ($config !== []) {
+            $body['config'] = $config;
+        }
+        if ($devices !== []) {
+            $body['devices'] = $devices;
+        }
+        if ($description !== null && $description !== '') {
+            $body['description'] = $description;
+        }
+
+        $response = $this->request($cluster)->post('/1.0/profiles', $body);
         $response->throw();
     }
 

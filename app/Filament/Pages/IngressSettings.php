@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Jobs\ProvisionManagedNetwork;
 use App\Models\IngressSetting;
 use App\Services\Ingress\IngressManager;
 use BackedEnum;
@@ -20,6 +21,8 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
+use Livewire\Attributes\On;
 
 /**
  * GUI for the ingress seam. Opens pre-filled with the managed defaults so the
@@ -40,6 +43,11 @@ class IngressSettings extends Page implements HasActions, HasSchemas
     public ?array $data = [];
 
     public array $status = [];
+
+    /** Non-empty while a managed-network provision is streaming to the toast. */
+    public string $provisionToken = '';
+
+    public bool $provisioning = false;
 
     /** Keep the page visible without a bespoke Shield permission for now. */
     public static function canAccess(): bool
@@ -159,9 +167,10 @@ class IngressSettings extends Page implements HasActions, HasSchemas
         $settings = IngressSetting::current();
         $settings->fill($data)->save();
 
-        // If kixctl is managing DNS, re-assert the full zone from current routes.
+        // If kixctl is managing DNS, stand up the managed network + resolver and
+        // re-assert the zone — streamed to the toast, not blocking this request.
         if ($settings->isManaged()) {
-            $this->safeSync();
+            $this->provisionManaged();
         }
 
         $this->refreshStatus();
@@ -178,7 +187,7 @@ class IngressSettings extends Page implements HasActions, HasSchemas
         $this->form->fill($settings->attributesToArray());
 
         if ($settings->isManaged()) {
-            $this->safeSync();
+            $this->provisionManaged();
         }
 
         $this->refreshStatus();
@@ -189,22 +198,34 @@ class IngressSettings extends Page implements HasActions, HasSchemas
             ->send();
     }
 
+    /** Toast finished (done or failed) — clear the streaming state, refresh status. */
+    #[On('network-provisioned')]
+    public function onProvisioned(): void
+    {
+        $this->provisioning = false;
+        $this->refreshStatus();
+    }
+
     public function refreshStatus(): void
     {
         $this->status = app(IngressManager::class)->status();
     }
 
-    /** Publishing touches the cluster; surface failures instead of 500ing the page. */
-    private function safeSync(): void
+    /**
+     * Kick off managed-network provisioning on the queue and open the live toast.
+     * The heavy work (createNetwork → build → launch → lease → serve) runs in
+     * ProvisionManagedNetwork and streams over Reverb, so the request returns at
+     * once and the user watches a corner toast instead of a frozen spinner.
+     */
+    private function provisionManaged(): void
     {
-        try {
-            app(IngressManager::class)->syncAll();
-        } catch (\Throwable $e) {
-            Notification::make()
-                ->title(__('ingress.sync_failed'))
-                ->body($e->getMessage())
-                ->danger()
-                ->send();
-        }
+        $this->provisionToken = (string) Str::random(24);
+        $this->provisioning = true;
+
+        ProvisionManagedNetwork::dispatch(
+            $this->provisionToken,
+            (string) config('deploy.launch.cluster', '') ?: null,
+            Auth::id(),
+        );
     }
 }
