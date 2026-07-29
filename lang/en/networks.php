@@ -22,6 +22,8 @@ return [
     'form' => [
         'key' => 'Key',
         'key_help' => 'Slug and Incus bridge name (e.g. kixbr1, workbr0). Letters, numbers, dashes.',
+        'existing' => 'Existing network',
+        'existing_help' => 'An unmanaged network already on your cluster (e.g. br0). kixctl references it as a target but never creates, edits, or deletes it.',
         'label' => 'Label',
         'description' => 'Description',
         'description_help' => 'Written to the Incus network description. Blank falls back to the label.',
@@ -33,12 +35,17 @@ return [
         'is_default' => 'Make this the default network',
         'key_locked_help' => "A network's key can't be changed. Delete and recreate to rename.",
         'cidr_locked_help' => 'The subnet is fixed after creation. Delete and recreate to change it.',
+        'cidr_unmanaged_help' => "This is the network's live subnet. kixctl references it and never changes it.",
+        'owned_by_bridge' => "Set by the network itself — kixctl references this and never changes it.",
     ],
 
     'crud' => [
         'create' => 'Create network',
         'created' => 'Network created.',
         'create_failed' => 'Could not create network',
+        'register' => 'Register existing',
+        'registered' => 'Network registered.',
+        'register_failed' => 'Could not register network',
         'edit' => 'Edit',
         'updated' => 'Network updated.',
         'update_failed' => 'Could not update network',

@@ -313,14 +313,22 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                     ->label(__('networks.table.label')),
                 TextColumn::make('ipv4_cidr')
                     ->label(__('networks.table.subnet'))
-                    ->state(fn (Network $record) => $record->ipv4_cidr ?: __('networks.table.auto'))
+                    ->state(fn (Network $record) => $record->managed
+                        ? ($record->ipv4_cidr ?: __('networks.table.auto'))
+                        : ($this->liveNetworks()[$record->key]['ipv4_address'] ?? '—'))
                     ->badge()
                     ->color('gray'),
                 IconColumn::make('ipv4_nat')
                     ->label(__('networks.table.nat'))
+                    ->state(fn (Network $record) => $record->managed
+                        ? (bool) $record->ipv4_nat
+                        : (bool) ($this->liveNetworks()[$record->key]['ipv4_nat'] ?? false))
                     ->boolean(),
                 IconColumn::make('ipv4_dhcp')
                     ->label(__('networks.table.dhcp'))
+                    ->state(fn (Network $record) => $record->managed
+                        ? (bool) $record->ipv4_dhcp
+                        : (bool) ($this->liveNetworks()[$record->key]['ipv4_dhcp'] ?? false))
                     ->boolean(),
                 TextColumn::make('isolation')
                     ->label(__('networks.table.isolation'))
@@ -391,26 +399,16 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                                 ->send();
                         }
                     }),
-            ])
-            ->recordActions([
-                Action::make('editNetwork')
-                    ->label(__('networks.crud.edit'))
-                    ->icon(Heroicon::OutlinedPencilSquare)
-                    ->visible(fn (Network $record) => ! $record->is_locked)
-                    ->fillForm(fn (Network $record) => [
-                        'key' => $record->key,
-                        'label' => $record->label,
-                        'description' => $record->description,
-                        'ipv4_cidr' => $record->ipv4_cidr,
-                        'ipv4_nat' => $record->ipv4_nat,
-                        'ipv4_dhcp' => $record->ipv4_dhcp,
-                        'isolation' => $record->isolation,
-                    ])
+                Action::make('registerNetwork')
+                    ->label(__('networks.crud.register'))
+                    ->icon(Heroicon::OutlinedLink)
+                    ->color('gray')
                     ->schema([
-                        TextInput::make('key')
-                            ->label(__('networks.form.key'))
-                            ->disabled()
-                            ->helperText(__('networks.form.key_locked_help')),
+                        Select::make('key')
+                            ->label(__('networks.form.existing'))
+                            ->options(fn () => $this->registerableNetworks())
+                            ->required()
+                            ->helperText(__('networks.form.existing_help')),
                         TextInput::make('label')
                             ->label(__('networks.form.label'))
                             ->required(),
@@ -418,20 +416,83 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                             ->label(__('networks.form.description'))
                             ->rows(2)
                             ->helperText(__('networks.form.description_help')),
-                        TextInput::make('ipv4_cidr')
-                            ->label(__('networks.form.cidr'))
-                            ->placeholder(__('networks.table.auto'))
-                            ->disabled()
-                            ->helperText(__('networks.form.cidr_locked_help')),
-                        Toggle::make('ipv4_nat')
-                            ->label(__('networks.form.nat')),
-                        Toggle::make('ipv4_dhcp')
-                            ->label(__('networks.form.dhcp')),
                         Select::make('isolation')
                             ->label(__('networks.form.isolation'))
                             ->options(array_combine(Network::ISOLATIONS, Network::ISOLATIONS))
+                            ->default('open')
                             ->required(),
+                        Toggle::make('is_default')
+                            ->label(__('networks.form.is_default'))
+                            ->default(false),
                     ])
+                    ->action(function (array $data): void {
+                        try {
+                            app(NetworkManager::class)->register($data);
+                            Notification::make()->title(__('networks.crud.registered'))->success()->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title(__('networks.crud.register_failed'))
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+            ])
+            ->recordActions([
+                Action::make('editNetwork')
+                    ->label(__('networks.crud.edit'))
+                    ->icon(Heroicon::OutlinedPencilSquare)
+                    ->visible(fn (Network $record) => ! $record->is_locked)
+                    ->fillForm(function (Network $record): array {
+                        $live = $this->liveNetworks()[$record->key] ?? [];
+                        $unmanaged = ! $record->managed;
+
+                        return [
+                            'key' => $record->key,
+                            'label' => $record->label,
+                            'description' => $record->description,
+                            // Unmanaged: show the REAL bridge's live values (read-only).
+                            // Managed: the row is the source of truth.
+                            'ipv4_cidr' => $unmanaged ? ($live['ipv4_address'] ?? '') : $record->ipv4_cidr,
+                            'ipv4_nat' => $unmanaged ? (bool) ($live['ipv4_nat'] ?? false) : (bool) $record->ipv4_nat,
+                            'ipv4_dhcp' => $unmanaged ? (bool) ($live['ipv4_dhcp'] ?? false) : (bool) $record->ipv4_dhcp,
+                            'isolation' => $record->isolation,
+                        ];
+                    })
+                    ->schema(function (Network $record): array {
+                        $unmanaged = ! $record->managed;
+
+                        return [
+                            TextInput::make('key')
+                                ->label(__('networks.form.key'))
+                                ->disabled()
+                                ->helperText(__('networks.form.key_locked_help')),
+                            TextInput::make('label')
+                                ->label(__('networks.form.label'))
+                                ->required(),
+                            Textarea::make('description')
+                                ->label(__('networks.form.description'))
+                                ->rows(2)
+                                ->helperText(__('networks.form.description_help')),
+                            TextInput::make('ipv4_cidr')
+                                ->label(__('networks.form.cidr'))
+                                ->placeholder(__('networks.table.auto'))
+                                ->disabled()
+                                ->helperText($unmanaged ? __('networks.form.cidr_unmanaged_help') : __('networks.form.cidr_locked_help')),
+                            Toggle::make('ipv4_nat')
+                                ->label(__('networks.form.nat'))
+                                ->disabled($unmanaged)
+                                ->helperText($unmanaged ? __('networks.form.owned_by_bridge') : null),
+                            Toggle::make('ipv4_dhcp')
+                                ->label(__('networks.form.dhcp'))
+                                ->disabled($unmanaged)
+                                ->helperText($unmanaged ? __('networks.form.owned_by_bridge') : null),
+                            Select::make('isolation')
+                                ->label(__('networks.form.isolation'))
+                                ->options(array_combine(Network::ISOLATIONS, Network::ISOLATIONS))
+                                ->required(),
+                        ];
+                    })
                     ->action(function (Network $record, array $data): void {
                         try {
                             app(NetworkManager::class)->update($record, $data);
@@ -502,6 +563,34 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
         } catch (\Throwable) {
             return $this->liveNetworksCache = [];
         }
+    }
+
+    /**
+     * Unmanaged networks already on the cluster that aren't yet referenced by a
+     * kixctl row — the pickable targets for "Register existing". Skips loopback
+     * and physical interfaces (nothing to place instances on).
+     *
+     * @return array<string,string>
+     */
+    private function registerableNetworks(): array
+    {
+        $taken = Network::query()->pluck('key')->all();
+
+        $out = [];
+        foreach ($this->liveNetworks() as $name => $n) {
+            if (($n['managed'] ?? false) !== false) {
+                continue; // kixctl-managed or Incus-managed already
+            }
+            if (in_array($n['type'] ?? '', ['loopback', 'physical'], true)) {
+                continue; // can't target these
+            }
+            if (in_array($name, $taken, true)) {
+                continue; // already referenced
+            }
+            $out[$name] = $name.' ('.($n['type'] ?? '?').', '.($n['used_by'] ?? 0).' in use)';
+        }
+
+        return $out;
     }
 
     private function provisionManaged(bool $rebuild = false): void
