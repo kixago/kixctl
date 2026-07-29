@@ -71,4 +71,34 @@ return [
         'record_ttl' => (int) env('INGRESS_RECORD_TTL', 30),
     ],
 
+    // The kixctl-owned Caddy edge — the third owned entity beside kixbr0 and
+    // kix. Internal by default: it rides kixbr0, reverse-proxies <app>.<zone> to
+    // the app container, and is reachable by anything using kixctl's CoreDNS.
+    // Config is rendered from app_routes and PUSHED as a Caddyfile via the Incus
+    // files API (never host->bridge HTTP); caddy --watch graceful-reloads it. The
+    // operator's own caddy-server is never read or written unless registered.
+    'caddy' => [
+        // The Caddy instance kixctl provisions and owns.
+        'instance' => env('INGRESS_CADDY_INSTANCE', 'kixctl-caddy'),
+
+        // Cluster member the edge is placed on (same default as the resolver).
+        'target' => env('INGRESS_CADDY_TARGET', 'powerhouse'),
+
+        // The kixctl-managed network the edge rides. Empty = the default network
+        // row (kixbr0). A network KEY (App\Models\Network); its eth0 is an
+        // explicit NIC on that bridge. Root disk comes from the `kix` profile.
+        'network' => env('INGRESS_CADDY_NETWORK', ''),
+
+        // Local flake kixctl builds the Caddy image from (via kixctl-build).
+        'flake' => env('INGRESS_CADDY_FLAKE', base_path('nix/caddy')),
+        'flake_attr' => env('INGRESS_CADDY_FLAKE_ATTR', 'caddy'),
+
+        // Writable path inside the edge where kixctl pushes the Caddyfile. The
+        // container runs `caddy run --config <this> --watch`, so a push reloads.
+        'config_path' => env('INGRESS_CADDY_CONFIG_PATH', '/var/lib/kixctl-caddy/Caddyfile'),
+
+        // Port the edge listens on inside the container (plain HTTP; internal).
+        'http_port' => (int) env('INGRESS_CADDY_HTTP_PORT', 80),
+    ],
+
 ];

@@ -1,5 +1,5 @@
 {
-  description = "kixctl managed Caddy edge — internal reverse proxy for the apps zone, driven entirely by the admin API (Incus container)";
+  description = "kixctl managed Caddy edge — internal reverse proxy for the apps zone, driven by a kixctl-pushed, watched Caddyfile (Incus container)";
 
   # Self-contained: the ONLY input is nixpkgs. The image-build outputs
   # (config.system.build.metadata + .tarball) that kixctl-build consumes come
@@ -13,52 +13,72 @@
     let
       system = "x86_64-linux";
 
-      # Where caddy's admin API listens. kixctl (on the host, which owns kixbr0)
-      # renders JSON from app_routes and PATCHes it here — no site config ever
-      # lives in this flake, and no config files are pushed into the container.
-      # 0.0.0.0 so the host can reach it across kixbr0; the bridge is an isolated
-      # auto-subnet and the firewall below only opens 2019 on it. Tighten to the
-      # container's kixbr0 address if you want belt-and-suspenders.
-      adminListen = "0.0.0.0:2019";
+      # kixctl pushes the rendered Caddyfile here via the Incus files API (the
+      # exact channel coredns uses for its zonefile — a local admin-socket write,
+      # never host->bridge HTTP, which the smoke test proved unreliable). caddy
+      # runs with --watch and graceful-reloads on every push. No site config
+      # lives in this flake; every route is runtime data rendered from app_routes.
+      configPath = "/var/lib/kixctl-caddy/Caddyfile";
 
       caddyModule =
-        { modulesPath, lib, ... }:
+        { modulesPath, lib, pkgs, ... }:
+        let
+          # A valid placeholder so caddy starts clean before kixctl's first push,
+          # and after a rebuild until ensure() re-asserts the real routes (kixctl
+          # re-renders from Postgres on every ensure, exactly like the zonefile).
+          seedCaddyfile = pkgs.writeText "kixctl-caddy-seed" ''
+            {
+            	auto_https off
+            }
+
+            :80 {
+            	respond "kixctl-caddy: no routes yet" 200
+            }
+          '';
+        in
         {
           imports = [ "${modulesPath}/virtualisation/lxc-container.nix" ];
 
-          # Caddy started from a FULL JSON config (settings), never a Caddyfile.
-          # It comes up with the admin API on and ZERO http servers — an empty,
-          # valid edge that does nothing until kixctl pushes routes over the API.
-          # kixctl re-asserts the whole route set from Postgres on every ensure(),
-          # so the container staying immutable/ephemeral is fine: a rebuild just
-          # gets re-populated, exactly like coredns re-pushes its zonefile.
-          services.caddy = {
-            enable = true;
-            settings = {
-              admin = {
-                listen = adminListen;
-              };
-              apps = {
-                http = {
-                  # No servers yet. kixctl adds an "apps" server (listen :80)
-                  # with @id-tagged routes via the admin API. Keeping this empty
-                  # (not absent) makes the starting config valid and loadable.
-                  servers = { };
-                };
-              };
-            };
+          # Use services.caddy for the user, StateDirectory and the :80 ambient
+          # capability + hardening — but drive it from the pushed, watched file
+          # instead of a nix-baked config. The module's own generated config is
+          # never used; ExecStart/ExecReload below override it.
+          services.caddy.enable = true;
+
+          # Seed the writable config dir + a valid placeholder Caddyfile. `C`
+          # copies only if absent, so a config kixctl already pushed survives a
+          # reboot; a fresh container gets the placeholder.
+          systemd.tmpfiles.rules = [
+            "d /var/lib/kixctl-caddy 0755 caddy caddy -"
+            "C ${configPath} 0644 caddy caddy - ${seedCaddyfile}"
+          ];
+
+          # Run caddy from the pushed Caddyfile with --watch (zero-downtime
+          # graceful reload on change). This is the whole "push and reload on the
+          # fly" mechanism — no admin API exposure, no exec primitive needed.
+          #
+          # The caddy module ships its unit as a package, so our override lands as
+          # a systemd DROP-IN — where a bare `ExecStart=` APPENDS to the module's
+          # (giving two ExecStart under Type=notify => "bad-setting", unit dead).
+          # The leading empty-string element is the systemd reset: it clears the
+          # inherited ExecStart/ExecReload first, then sets ours. Result: exactly
+          # one command each.
+          systemd.services.caddy.serviceConfig = {
+            ExecStart = lib.mkForce [
+              ""
+              "${pkgs.caddy}/bin/caddy run --config ${configPath} --adapter caddyfile --watch"
+            ];
+            ExecReload = lib.mkForce [
+              ""
+              "${pkgs.caddy}/bin/caddy reload --config ${configPath} --adapter caddyfile --force"
+            ];
           };
 
           networking = {
-            # Inbound HTTP (the reverse-proxy edge) + the admin API. The firewall
-            # is on by default under NixOS; 2019 is only reachable across the
-            # isolated kixbr0 subnet.
-            firewall = {
-              allowedTCPPorts = [
-                80
-                2019
-              ];
-            };
+            # Inbound HTTP only — the reverse-proxy edge. The admin API stays on
+            # its localhost default (unexposed); kixctl never needs it for the
+            # managed caddy. The firewall is on by default under NixOS.
+            firewall.allowedTCPPorts = [ 80 ];
 
             # systemd-networkd ONLY. The lxc-container base ships dhcpcd and does
             # NOT enable networkd — so we tear out dhcpcd and force networkd on,
