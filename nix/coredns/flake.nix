@@ -73,12 +73,10 @@
           # specific interface name.
           systemd.network = {
             enable = true;
-            networks."99-ethernet-default-dhcp" = {
-              matchConfig.Name = [
-                "en*"
-                "eth*"
-              ];
-              networkConfig.DHCP = "yes";
+            wait-online.enable = false;
+            networks."10-eth0" = {
+              matchConfig.Name = "eth0";
+              networkConfig.DHCP = "ipv4";
             };
           };
 
