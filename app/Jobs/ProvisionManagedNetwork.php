@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Events\NetworkProvisionProgress;
+use App\Events\ProvisionConsoleLine;
 use App\Models\IngressSetting;
 use App\Models\User;
 use App\Services\Incus\ClusterRegistry;
@@ -38,6 +39,7 @@ class ProvisionManagedNetwork implements ShouldQueue
         public string $token,
         public ?string $clusterKey = null,
         public ?int $userId = null,
+        public bool $rebuild = false,
     ) {
         $this->onQueue('incus');
     }
@@ -46,6 +48,7 @@ class ProvisionManagedNetwork implements ShouldQueue
         ClusterRegistry $registry,
         CorednsProvisioner $provisioner,
         IngressManager $ingress,
+        \App\Services\Incus\IncusClient $incus,
     ): void {
         $settings = IngressSetting::current();
 
@@ -66,9 +69,17 @@ class ProvisionManagedNetwork implements ShouldQueue
             return;
         }
 
+        // Rebuild: drop the existing resolver first so ensure() rebuilds it
+        // (instanceExists would otherwise short-circuit a stale/broken one).
+        if ($this->rebuild && $incus->instanceExists($cluster, $settings->dns_instance)) {
+            event(new NetworkProvisionProgress($this->token, 'pending', 'Rebuilding — removing the old resolver…'));
+            $incus->deleteInstance($cluster, $settings->dns_instance);
+        }
+
         event(new NetworkProvisionProgress($this->token, 'pending', 'Starting…'));
 
         try {
+            $consoleSeq = 0;
             $result = $provisioner->ensure(
                 $cluster,
                 $settings,
@@ -80,6 +91,9 @@ class ProvisionManagedNetwork implements ShouldQueue
                         ip: $extra['ip'] ?? null,
                         network: $extra['network'] ?? null,
                     ));
+                },
+                function (string $stream, string $line) use (&$consoleSeq): void {
+                    event(new ProvisionConsoleLine($this->token, $stream, $line, ++$consoleSeq));
                 },
             );
 

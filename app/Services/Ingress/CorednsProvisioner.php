@@ -7,7 +7,6 @@ use App\Models\Network;
 use App\Services\Incus\Cluster;
 use App\Services\Incus\IncusClient;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Process;
 use RuntimeException;
 
 /**
@@ -41,7 +40,7 @@ class CorednsProvisioner
      * @param  callable|null  $onProgress
      * @return array{instance:string, ip:string, network:string}
      */
-    public function ensure(Cluster $cluster, IngressSetting $settings, ?callable $onProgress = null): array
+    public function ensure(Cluster $cluster, IngressSetting $settings, ?callable $onProgress = null, ?callable $onConsole = null): array
     {
         $report = static function (string $phase, string $message, array $extra = []) use ($onProgress): void {
             if ($onProgress !== null) {
@@ -63,7 +62,7 @@ class CorednsProvisioner
 
         // 3) Build + launch the resolver onto kixctl's network + profile if absent.
         if (! $this->incus->instanceExists($cluster, $name)) {
-            $this->build($cluster, $settings, $name, $network, $profile, $report);
+            $this->build($cluster, $settings, $name, $network, $profile, $report, $onConsole);
         }
 
         // 4) Make sure it is running. Idempotent on an already-running box.
@@ -207,7 +206,7 @@ class CorednsProvisioner
     }
 
     /** Build the CoreDNS image from the local flake, import it, launch it on kixctl's net + profile. */
-    private function build(Cluster $cluster, IngressSetting $settings, string $name, Network $network, string $profile, callable $report): void
+    private function build(Cluster $cluster, IngressSetting $settings, string $name, Network $network, string $profile, callable $report, ?callable $onConsole = null): void
     {
         $flake = (string) config('ingress.managed.flake');
         $attr = (string) config('ingress.managed.flake_attr', 'coredns');
@@ -215,12 +214,23 @@ class CorednsProvisioner
         $report('building', 'Building the resolver image…');
         Log::info('ingress.coredns.build', ['flake' => $flake, 'attr' => $attr]);
 
-        $result = Process::timeout(1800)->run([
-            base_path('scripts/kixctl-build'),
-            '--flake', $flake,
-            '--attr', $attr,
-            '--kind', 'container',
-        ]);
+        // Stream the build line-by-line to the console callback (proven via
+        // ConsoleStreamer) while still capturing the full ProcessResult: stdout
+        // carries the JSON result, stderr the nix logs the console tails.
+        $result = (new \App\Support\ConsoleStreamer())->run(
+            [
+                base_path('scripts/kixctl-build'),
+                '--flake', $flake,
+                '--attr', $attr,
+                '--kind', 'container',
+            ],
+            static function (string $stream, string $line) use ($onConsole): void {
+                if ($onConsole !== null) {
+                    $onConsole($stream, $line);
+                }
+            },
+            1800,
+        );
 
         if (! $result->successful()) {
             throw new RuntimeException('CoreDNS build failed: '.$result->errorOutput());
