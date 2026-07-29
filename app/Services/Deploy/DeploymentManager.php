@@ -26,6 +26,9 @@ use RuntimeException;
  * Incus config key (`user.kixctl.retired_at`), so it too stays readable from
  * `incus config show` and survives a reboot, with no kixctl-side ledger to drift.
  *
+ *   landOrPublish(app, rev)  — the deploy path's promotion decision: publish the
+ *                              first revision (so it's reachable), but LAND a
+ *                              later one alongside without stealing live traffic.
  *   cutover(app, rev)  — ensure rev is up, resolve its IP, re-point the route via
  *                        IngressManager (one publish() = CoreDNS + edge re-render),
  *                        clear rev's retirement mark, retire the outgoing revision
@@ -52,6 +55,50 @@ class DeploymentManager
         private ClusterRegistry $registry,
         private IngressManager $ingress,
     ) {}
+
+    /**
+     * The deploy path's promotion decision, called once a freshly-built revision
+     * is up and has an address. Whether it goes LIVE depends on what's already
+     * there:
+     *
+     *   - nothing live yet (first deploy of this app), OR the recorded live
+     *     revision is gone, OR it IS this revision (a re-push of the same commit)
+     *     -> publish, so the app is reachable by name immediately.
+     *   - a DIFFERENT revision is already live -> land ALONGSIDE: leave the route
+     *     untouched and let the new revision surface as "update ready" for the
+     *     operator to promote with a cutover.
+     *
+     * This is the build-alongside half of the lifecycle (decisions.md): a push
+     * never silently swings live traffic onto unproven code. Returns 'published'
+     * or 'alongside' so the caller (and the landing probe) can log and assert.
+     */
+    public function landOrPublish(string $app, string $instance, string $ip, int $port): string
+    {
+        $cluster = $this->cluster();
+        $live = optional(AppRoute::query()->where('app', $app)->first())->live_instance;
+
+        $liveElsewhere = $live && $live !== $instance && $this->incus->instanceExists($cluster, $live);
+
+        if ($liveElsewhere) {
+            Log::info('deploy.landed_alongside', [
+                'app' => $app,
+                'instance' => $instance,
+                'live' => $live,
+            ]);
+
+            return 'alongside';
+        }
+
+        $this->ingress->publish($app, $instance, $ip, $port);
+
+        Log::info('deploy.published_live', [
+            'app' => $app,
+            'instance' => $instance,
+            'ip' => $ip,
+        ]);
+
+        return 'published';
+    }
 
     /**
      * Every revision of $app, newest first, annotated for the UI. `update_ready`

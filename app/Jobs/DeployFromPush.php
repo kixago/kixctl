@@ -3,9 +3,9 @@
 namespace App\Jobs;
 
 use App\Models\DeployAppConfig;
+use App\Services\Deploy\DeploymentManager;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
-use App\Services\Ingress\IngressManager;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -14,24 +14,25 @@ use Illuminate\Support\Facades\Process;
 /**
  * Deploy a pushed commit: build a NixOS image from the repo, import it over the
  * Incus REST API, launch it as an immutable per-revision instance on the owned
- * bridge, then publish its route through the selected ingress provider.
+ * bridge, then hand routing to the deploy lifecycle.
  *
  * Slice B builds the image (the one host-touching step, via the kixctl-build
  * subsystem). Slice C imports that image and launches it as an IMMUTABLE,
  * per-revision instance named "<repo>-<sha7>" on a chosen cluster member — a
  * fresh unit each push, never a mutation of a running one. It holds no durable
- * state (that boundary is a later, deliberate slice); revert and cutover live in
- * later slices, so this job only ever ADDS a revision, never removes one.
+ * state; the job only ever ADDS a revision, never removes one.
  *
  * The revision lands on the kixctl-OWNED network + profile (kixbr0 + kix) by
  * default — internal-by-default, reachable only through kixctl's own edge, never
  * sprayed onto the operator's LAN (overridable in config/deploy.php).
  *
- * Slice D publishes the route via IngressManager: `edge` points <app>.<zone> at
- * kixctl's own Caddy (which reverse-proxies to the revision) and writes CoreDNS;
- * `managed` writes DNS to the revision; `manual` records only. The app key is the
- * stable repo leaf, so a new push re-points the existing route — no churn. Runs
- * on the existing long-timeout `incus` lane (supervisor-incus).
+ * Routing is the lifecycle's call, not the job's: DeploymentManager::landOrPublish
+ * publishes the FIRST revision of an app (so it is reachable by name at once), but
+ * when a different revision is already live it LANDS the new one ALONGSIDE — the
+ * route is left untouched and the revision surfaces as "update ready" for the
+ * operator to promote with a cutover. A push therefore never silently swings live
+ * traffic onto unproven code; promotion, revert, and reap are explicit operator
+ * actions (or, later, a policy). Runs on the long-timeout `incus` lane.
  */
 class DeployFromPush implements ShouldQueue
 {
@@ -52,7 +53,7 @@ class DeployFromPush implements ShouldQueue
         $this->onQueue('incus');
     }
 
-    public function handle(IncusClient $incus, ClusterRegistry $registry, IngressManager $ingress): void
+    public function handle(IncusClient $incus, ClusterRegistry $registry, DeploymentManager $deployment): void
     {
         // ── Build ────────────────────────────────────────────────────────────
         // Pin the build to the exact pushed commit: git+<clone url>?rev=<sha>.
@@ -211,38 +212,38 @@ class DeployFromPush implements ShouldQueue
             'network' => $network,
         ]);
 
-        // ── Publish the route (Slice D) ──────────────────────────────────────
-        // Point <app>.<zone> at this revision through whatever provider the
-        // operator selected: `edge` ensures kixctl's own Caddy + CoreDNS and
-        // writes both (host -> caddy -> app); `managed` writes DNS; `manual`
-        // records only. The app KEY is the stable repo leaf (constant across
-        // revisions), so a new push just re-points the existing route at the new
-        // revision — no route churn, cutover/revert stay a later slice. Skipped
-        // if the lease never appeared: the instance is up but unrouted, and the
-        // operator can Publish from the Records tab once it settles.
+        // ── Route: publish if first, otherwise land alongside ────────────────
+        // The lifecycle decides: the FIRST revision of an app is published so it
+        // is reachable by name immediately; a later revision LANDS ALONGSIDE the
+        // running one (route untouched) and surfaces as "update ready" for the
+        // operator to promote with a cutover. A push never silently swings live
+        // traffic. Skipped if the lease never appeared: the revision is up but
+        // unrouted, and the operator can act on it from the Updates surface once
+        // it settles.
         if ($ip === null) {
-            Log::warning('deploy.no_ip_skipping_publish', ['instance' => $name]);
+            Log::warning('deploy.no_ip_skipping_route', ['instance' => $name]);
 
             return;
         }
 
         try {
-            $ingress->publish(
+            $outcome = $deployment->landOrPublish(
                 $this->appKey(),
                 $name,
                 $ip,
                 (int) config('ingress.app_port', 8080),
             );
 
-            Log::info('deploy.published', [
+            Log::info('deploy.route_outcome', [
                 'app' => $this->appKey(),
                 'instance' => $name,
                 'ip' => $ip,
+                'outcome' => $outcome, // 'published' (went live) | 'alongside' (update ready)
             ]);
         } catch (\Throwable $e) {
-            // A publish failure must not fail the deploy — the revision is live;
+            // A routing failure must not fail the deploy — the revision is up;
             // routing can be re-asserted from the GUI. Log loudly and move on.
-            Log::error('deploy.publish_failed', [
+            Log::error('deploy.route_failed', [
                 'app' => $this->appKey(),
                 'instance' => $name,
                 'error' => $e->getMessage(),
