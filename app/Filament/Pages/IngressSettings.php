@@ -49,6 +49,16 @@ class IngressSettings extends Page implements HasActions, HasSchemas
 
     public bool $provisioning = false;
 
+    /** Active Settings tab: network|ingress (storage is coming-soon). */
+    public string $tab = 'network';
+
+    /**
+     * Resolver create-first state, refreshed from Incus:
+     *   ['state' => absent|provisioning|ready, 'instance', 'ip'?, 'network'?].
+     * Drives the Network tab: absent → Create; provisioning → console; ready → config.
+     */
+    public array $resolver = ['state' => 'absent'];
+
     /** Keep the page visible without a bespoke Shield permission for now. */
     public static function canAccess(): bool
     {
@@ -57,18 +67,19 @@ class IngressSettings extends Page implements HasActions, HasSchemas
 
     public static function getNavigationLabel(): string
     {
-        return __('ingress.title');
+        return __('settings.title');
     }
 
     public function getTitle(): string|Htmlable
     {
-        return __('ingress.title');
+        return __('settings.title');
     }
 
     public function mount(): void
     {
         $this->form->fill(IngressSetting::current()->attributesToArray());
         $this->refreshStatus();
+        $this->refreshResolver();
     }
 
     public function form(Schema $schema): Schema
@@ -160,6 +171,27 @@ class IngressSettings extends Page implements HasActions, HasSchemas
             ->action(fn () => $this->backToDefaults());
     }
 
+    /** Create-first: explicitly stand up the resolver (absent → provisioning). */
+    public function createResolverAction(): Action
+    {
+        return Action::make('createResolver')
+            ->label(__('networks.action.create'))
+            ->icon(Heroicon::OutlinedBolt)
+            ->action(fn () => $this->provisionManaged());
+    }
+
+    /** Rebuild: delete + reprovision a broken/stale/flake-changed resolver. */
+    public function rebuildResolverAction(): Action
+    {
+        return Action::make('rebuildResolver')
+            ->label(__('networks.action.rebuild'))
+            ->color('gray')
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->requiresConfirmation()
+            ->modalDescription(__('networks.action.rebuild_confirm'))
+            ->action(fn () => $this->provisionManaged(rebuild: true));
+    }
+
     public function save(): void
     {
         $data = $this->form->getState();
@@ -167,13 +199,11 @@ class IngressSettings extends Page implements HasActions, HasSchemas
         $settings = IngressSetting::current();
         $settings->fill($data)->save();
 
-        // If kixctl is managing DNS, stand up the managed network + resolver and
-        // re-assert the zone — streamed to the toast, not blocking this request.
-        if ($settings->isManaged()) {
-            $this->provisionManaged();
-        }
-
+        // Create-first: saving settings no longer provisions as a side effect
+        // (that was the confusing save-first path). Provisioning is explicit now,
+        // via Create/Rebuild resolver on the Network tab.
         $this->refreshStatus();
+        $this->refreshResolver();
 
         Notification::make()
             ->title(__('ingress.saved'))
@@ -186,11 +216,8 @@ class IngressSettings extends Page implements HasActions, HasSchemas
         $settings = IngressSetting::current()->resetToDefaults();
         $this->form->fill($settings->attributesToArray());
 
-        if ($settings->isManaged()) {
-            $this->provisionManaged();
-        }
-
         $this->refreshStatus();
+        $this->refreshResolver();
 
         Notification::make()
             ->title(__('ingress.reset'))
@@ -204,6 +231,7 @@ class IngressSettings extends Page implements HasActions, HasSchemas
     {
         $this->provisioning = false;
         $this->refreshStatus();
+        $this->refreshResolver();
     }
 
     public function refreshStatus(): void
@@ -212,12 +240,49 @@ class IngressSettings extends Page implements HasActions, HasSchemas
     }
 
     /**
+     * Create-first state, read live from Incus. absent = no resolver instance;
+     * provisioning = exists but no lease yet; ready = exists + has an IPv4.
+     * No cluster / no instance both read as absent (nothing to configure yet).
+     */
+    public function refreshResolver(): void
+    {
+        $name = IngressSetting::current()->dns_instance;
+
+        $registry = app(\App\Services\Incus\ClusterRegistry::class);
+        $incus = app(\App\Services\Incus\IncusClient::class);
+
+        try {
+            $cluster = collect($registry->all())->first();
+
+            if (! $cluster || ! $incus->instanceExists($cluster, $name)) {
+                $this->resolver = ['state' => 'absent', 'instance' => $name];
+
+                return;
+            }
+
+            $ip = $incus->instanceIpv4($cluster, $name);
+        } catch (\Throwable) {
+            // Incus unreachable / transient — don't blank the page; treat as absent.
+            $this->resolver = ['state' => 'absent', 'instance' => $name];
+
+            return;
+        }
+
+        $this->resolver = [
+            'state' => ($ip !== null && $ip !== '') ? 'ready' : 'provisioning',
+            'instance' => $name,
+            'ip' => $ip,
+            'network' => \App\Models\Network::default()?->key,
+        ];
+    }
+
+    /**
      * Kick off managed-network provisioning on the queue and open the live toast.
      * The heavy work (createNetwork → build → launch → lease → serve) runs in
      * ProvisionManagedNetwork and streams over Reverb, so the request returns at
      * once and the user watches a corner toast instead of a frozen spinner.
      */
-    private function provisionManaged(): void
+    private function provisionManaged(bool $rebuild = false): void
     {
         $this->provisionToken = (string) Str::random(24);
         $this->provisioning = true;
@@ -226,6 +291,7 @@ class IngressSettings extends Page implements HasActions, HasSchemas
             $this->provisionToken,
             (string) config('deploy.launch.cluster', '') ?: null,
             Auth::id(),
+            $rebuild,
         );
     }
 }
