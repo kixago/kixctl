@@ -12,6 +12,7 @@ use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -355,6 +356,10 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                         TextInput::make('label')
                             ->label(__('networks.form.label'))
                             ->required(),
+                        Textarea::make('description')
+                            ->label(__('networks.form.description'))
+                            ->rows(2)
+                            ->helperText(__('networks.form.description_help')),
                         TextInput::make('ipv4_cidr')
                             ->label(__('networks.form.cidr'))
                             ->placeholder(__('networks.table.auto'))
@@ -388,6 +393,57 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                     }),
             ])
             ->recordActions([
+                Action::make('editNetwork')
+                    ->label(__('networks.crud.edit'))
+                    ->icon(Heroicon::OutlinedPencilSquare)
+                    ->visible(fn (Network $record) => ! $record->is_locked)
+                    ->fillForm(fn (Network $record) => [
+                        'key' => $record->key,
+                        'label' => $record->label,
+                        'description' => $record->description,
+                        'ipv4_cidr' => $record->ipv4_cidr,
+                        'ipv4_nat' => $record->ipv4_nat,
+                        'ipv4_dhcp' => $record->ipv4_dhcp,
+                        'isolation' => $record->isolation,
+                    ])
+                    ->schema([
+                        TextInput::make('key')
+                            ->label(__('networks.form.key'))
+                            ->disabled()
+                            ->helperText(__('networks.form.key_locked_help')),
+                        TextInput::make('label')
+                            ->label(__('networks.form.label'))
+                            ->required(),
+                        Textarea::make('description')
+                            ->label(__('networks.form.description'))
+                            ->rows(2)
+                            ->helperText(__('networks.form.description_help')),
+                        TextInput::make('ipv4_cidr')
+                            ->label(__('networks.form.cidr'))
+                            ->placeholder(__('networks.table.auto'))
+                            ->disabled()
+                            ->helperText(__('networks.form.cidr_locked_help')),
+                        Toggle::make('ipv4_nat')
+                            ->label(__('networks.form.nat')),
+                        Toggle::make('ipv4_dhcp')
+                            ->label(__('networks.form.dhcp')),
+                        Select::make('isolation')
+                            ->label(__('networks.form.isolation'))
+                            ->options(array_combine(Network::ISOLATIONS, Network::ISOLATIONS))
+                            ->required(),
+                    ])
+                    ->action(function (Network $record, array $data): void {
+                        try {
+                            app(NetworkManager::class)->update($record, $data);
+                            Notification::make()->title(__('networks.crud.updated'))->success()->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title(__('networks.crud.update_failed'))
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
                 Action::make('setDefault')
                     ->label(__('networks.crud.set_default'))
                     ->icon(Heroicon::OutlinedStar)

@@ -106,11 +106,19 @@ class NetworkManager
             $liveConfig['ipv4.address'] = $newCidr ?: 'auto';
         }
 
+        // A label/description edit re-syncs the Incus description too.
+        $descTouched = array_key_exists('label', $attrs) || array_key_exists('description', $attrs);
+
         // Row first (metadata + toggles + cidr intent), then the live bridge.
         $network->fill($attrs)->save();
 
-        if ($bridgeExists && $liveConfig !== []) {
-            $this->incus->updateNetwork($cluster, $network->key, $liveConfig);
+        if ($bridgeExists && ($liveConfig !== [] || $descTouched)) {
+            $this->incus->updateNetwork(
+                $cluster,
+                $network->key,
+                $liveConfig,
+                $descTouched ? $this->incusDescription($network) : null,
+            );
         }
 
         if ($makeDefault && ! $network->is_default) {
@@ -192,8 +200,18 @@ class NetworkManager
             $network->key,
             'bridge',
             $network->incusConfig(),
-            $network->description ?: null,
+            $this->incusDescription($network),
         );
+    }
+
+    /**
+     * The text kixctl writes to the Incus network description: the row's own
+     * description, or its label as a friendly fallback so `incus network list`
+     * always shows something meaningful rather than a blank.
+     */
+    private function incusDescription(Network $network): string
+    {
+        return (string) ($network->description ?: $network->label);
     }
 
     private function cluster(): ?Cluster
