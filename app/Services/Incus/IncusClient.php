@@ -246,6 +246,8 @@ class IncusClient
                 'status' => $n['status'] ?? '',
                 'description' => $n['description'] ?? '',
                 'ipv4_nat' => ($n['config']['ipv4.nat'] ?? '') === 'true',
+                'ipv4_dhcp' => ($n['config']['ipv4.dhcp'] ?? '') === 'true',
+                'ipv4_address' => $n['config']['ipv4.address'] ?? '',
                 'ipv6_nat' => ($n['config']['ipv6.nat'] ?? '') === 'true',
                 'used_by' => count($n['used_by'] ?? []),
             ])
