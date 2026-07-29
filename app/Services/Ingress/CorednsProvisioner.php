@@ -76,7 +76,7 @@ class CorednsProvisioner
 
         // 5) Wait for the kixbr0 lease.
         $report('leasing', 'Waiting for a DHCP lease…');
-        $ip = $this->waitForIp($cluster, $name);
+        $ip = $this->waitForIp($cluster, $name, report: $report);
         if ($ip === null) {
             throw new RuntimeException("CoreDNS resolver {$name} has no IPv4 lease yet on {$network->key}.");
         }
@@ -231,12 +231,17 @@ class CorednsProvisioner
             throw new RuntimeException('CoreDNS build produced no image paths: '.$result->output());
         }
 
+        // replace: true — the resolver reuses ONE fixed alias across rebuilds, so
+        // we must delete the stale image and import the freshly built content;
+        // otherwise importImage's per-revision short-circuit relaunches the old
+        // image forever (the fossil-image bug).
         $report('importing', 'Importing the image…');
         $fingerprint = $this->incus->importImage(
             $cluster,
             $paths['metadata'],
             $paths['rootfs'],
             alias: $name,
+            replace: true,
         );
 
         // Root disk from kixctl's OWN profile; network from the instance eth0 NIC
@@ -259,14 +264,24 @@ class CorednsProvisioner
         ]);
     }
 
-    private function waitForIp(Cluster $cluster, string $name, int $attempts = 20): ?string
+    /**
+     * Poll for the DHCP lease. A FRESH container has to boot systemd, start
+     * networkd, match eth0, DISCOVER and lease — a cold path that routinely
+     * exceeds the old 10s budget even though the lease itself is instant once
+     * asked. So we wait up to ~90s (180 × 0.5s) and, if a progress callback is
+     * given, tick every ~5s so a slow boot reads as "still leasing", not a hang.
+     */
+    private function waitForIp(Cluster $cluster, string $name, int $attempts = 180, ?callable $report = null): ?string
     {
         for ($i = 0; $i < $attempts; $i++) {
             $ip = $this->incus->instanceIpv4($cluster, $name);
             if ($ip !== null && $ip !== '') {
                 return $ip;
             }
-            usleep(500_000); // 0.5s between probes; DHCP lease can lag boot
+            if ($report !== null && $i > 0 && $i % 10 === 0) {
+                $report('leasing', 'Waiting for a DHCP lease… ('.((int) ($i / 2)).'s)');
+            }
+            usleep(500_000); // 0.5s between probes
         }
 
         return null;

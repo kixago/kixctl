@@ -317,16 +317,29 @@ class IncusClient
      * uploads them through the same cert-scoped transport as every other call — the host
      * is never touched directly.
      */
-    public function importImage(Cluster $cluster, string $metadataPath, string $rootfsPath, int $timeout = 600, ?string $alias = null): string
+    public function importImage(Cluster $cluster, string $metadataPath, string $rootfsPath, int $timeout = 600, ?string $alias = null, bool $replace = false): string
     {
         // Idempotent: if an alias is given and already resolves to an image,
         // reuse its fingerprint. The immutable model imports the same content
-        // under the same per-revision alias, so re-running a deploy of the same
-        // commit must not fail on "image already exists".
-        if ($alias !== null) {
+        // under the same per-revision alias (<repo>-<sha>), so re-running a
+        // deploy of the same commit must not fail on "image already exists".
+        //
+        // EXCEPTION — $replace: some images reuse ONE fixed alias across rebuilds
+        // (the CoreDNS resolver, "kixctl-coredns"), where the alias is NOT a
+        // content hash. For those the short-circuit is wrong — it would relaunch
+        // a stale image forever — so $replace deletes the old alias+image first
+        // and imports the freshly built content.
+        if ($alias !== null && ! $replace) {
             $existing = $this->imageFingerprintByAlias($cluster, $alias);
             if ($existing !== null) {
                 return $existing;
+            }
+        }
+
+        if ($alias !== null && $replace) {
+            $stale = $this->imageFingerprintByAlias($cluster, $alias);
+            if ($stale !== null) {
+                $this->deleteImage($cluster, $stale);
             }
         }
 
@@ -383,6 +396,28 @@ class IncusClient
         $response->throw();
 
         return $response->json('metadata.target');
+    }
+
+    /**
+     * Delete an image by fingerprint (async op; tolerates an already-gone
+     * image). Deleting the image also removes any aliases pointing at it, so a
+     * subsequent import can re-create the alias cleanly.
+     */
+    public function deleteImage(Cluster $cluster, string $fingerprint, int $timeout = 120): void
+    {
+        $response = $this->request($cluster)->delete('/1.0/images/'.rawurlencode($fingerprint));
+        if ($response->status() === 404) {
+            return;
+        }
+        $response->throw();
+
+        $operation = $response->json('operation');
+        if ($operation) {
+            $this->request($cluster)
+                ->timeout($timeout + 5)
+                ->get(rtrim((string) $operation, '/').'/wait', ['timeout' => $timeout])
+                ->throw();
+        }
     }
 
     /** Attach an alias to an image fingerprint (tolerates an existing alias). */
