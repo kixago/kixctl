@@ -6,6 +6,7 @@ return [
 
     'tab' => [
         'network' => 'Network',
+        'profiles' => 'Profiles',
         'ingress' => 'Ingress',
         'storage' => 'Storage',
         'soon' => 'soon',

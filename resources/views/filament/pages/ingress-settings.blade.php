@@ -2,7 +2,7 @@
     {{-- Settings shell: tabbed chips. Network first (create-first resolver flow),
          Ingress (zone/records), Storage coming soon. Tab state is Livewire-driven. --}}
     <div style="display:flex; align-items:center; gap:.4rem; margin-bottom:1.25rem; border-bottom:1px solid rgba(255,255,255,.08); padding-bottom:.75rem;">
-        @foreach (['network', 'ingress'] as $chip)
+        @foreach (['network', 'profiles', 'ingress'] as $chip)
             <button
                 type="button"
                 wire:click="$set('tab', '{{ $chip }}')"
@@ -110,6 +110,14 @@
             <h3 style="font-weight:600; font-size:1rem; margin-bottom:.75rem;">{{ __('networks.table.heading') }}</h3>
             {{ $this->table }}
         </div>
+    @endif
+
+    {{-- ==================== PROFILES TAB ==================== --}}
+    {{-- The second owned entity. Its own standalone Livewire table (a Page can
+         only host one table() — that's the Networks one), so the proven Network
+         tab is untouched and a bad idiom here is a single-file revert. --}}
+    @if ($tab === 'profiles')
+        @livewire('profiles-table')
     @endif
 
     {{-- ==================== INGRESS TAB ==================== --}}
