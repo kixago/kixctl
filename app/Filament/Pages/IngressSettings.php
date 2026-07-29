@@ -5,15 +5,15 @@ namespace App\Filament\Pages;
 use App\Jobs\ProvisionManagedNetwork;
 use App\Models\IngressSetting;
 use App\Models\Network;
-use App\Services\Incus\ClusterRegistry;
-use App\Services\Incus\IncusClient;
 use App\Services\Ingress\IngressManager;
+use App\Services\Networks\NetworkManager;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Section;
@@ -22,6 +22,11 @@ use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
@@ -34,10 +39,11 @@ use Livewire\Attributes\On;
  * config/ingress.php and re-asserts the managed provider — kixctl takes over
  * again, exactly as intended.
  */
-class IngressSettings extends Page implements HasActions, HasSchemas
+class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
 {
     use InteractsWithActions;
     use InteractsWithSchemas;
+    use InteractsWithTable;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedGlobeAlt;
 
@@ -61,6 +67,9 @@ class IngressSettings extends Page implements HasActions, HasSchemas
      * Drives the Network tab: absent → Create; provisioning → console; ready → config.
      */
     public array $resolver = ['state' => 'absent'];
+
+    /** Per-request memo of live Incus network state (not Livewire-tracked). */
+    private ?array $liveNetworksCache = null;
 
     /** Keep the page visible without a bespoke Shield permission for now. */
     public static function canAccess(): bool
@@ -251,8 +260,8 @@ class IngressSettings extends Page implements HasActions, HasSchemas
     {
         $name = IngressSetting::current()->dns_instance;
 
-        $registry = app(ClusterRegistry::class);
-        $incus = app(IncusClient::class);
+        $registry = app(\App\Services\Incus\ClusterRegistry::class);
+        $incus = app(\App\Services\Incus\IncusClient::class);
 
         try {
             $cluster = collect($registry->all())->first();
@@ -275,7 +284,7 @@ class IngressSettings extends Page implements HasActions, HasSchemas
             'state' => ($ip !== null && $ip !== '') ? 'ready' : 'provisioning',
             'instance' => $name,
             'ip' => $ip,
-            'network' => Network::default()?->key,
+            'network' => \App\Models\Network::default()?->key,
         ];
     }
 
@@ -285,11 +294,164 @@ class IngressSettings extends Page implements HasActions, HasSchemas
      * ProvisionManagedNetwork and streams over Reverb, so the request returns at
      * once and the user watches a corner toast instead of a frozen spinner.
      */
+    /**
+     * The Networks table (managed rows + the locked kixbr0, shown and guarded).
+     * Create/Delete route through NetworkManager so the real Incus bridge is kept
+     * in lockstep with the row; the model guard protects the locked default.
+     */
+    public function table(Table $table): Table
+    {
+        return $table
+            ->query(Network::query()->orderBy('sort')->orderBy('id'))
+            ->columns([
+                TextColumn::make('key')
+                    ->label(__('networks.table.key'))
+                    ->badge()
+                    ->color('gray'),
+                TextColumn::make('label')
+                    ->label(__('networks.table.label')),
+                TextColumn::make('ipv4_cidr')
+                    ->label(__('networks.table.subnet'))
+                    ->state(fn (Network $record) => $record->ipv4_cidr ?: __('networks.table.auto'))
+                    ->badge()
+                    ->color('gray'),
+                IconColumn::make('ipv4_nat')
+                    ->label(__('networks.table.nat'))
+                    ->boolean(),
+                IconColumn::make('ipv4_dhcp')
+                    ->label(__('networks.table.dhcp'))
+                    ->boolean(),
+                TextColumn::make('isolation')
+                    ->label(__('networks.table.isolation'))
+                    ->badge(),
+                IconColumn::make('is_default')
+                    ->label(__('networks.table.default'))
+                    ->boolean(),
+                TextColumn::make('used_by')
+                    ->label(__('networks.table.used_by'))
+                    ->state(fn (Network $record) => $this->liveNetworks()[$record->key]['used_by'] ?? '—')
+                    ->badge()
+                    ->color('gray'),
+                IconColumn::make('managed')
+                    ->label(__('networks.table.managed'))
+                    ->boolean()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('is_locked')
+                    ->label(__('networks.table.locked'))
+                    ->boolean()
+                    ->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->defaultSort('sort')
+            ->headerActions([
+                Action::make('createNetwork')
+                    ->label(__('networks.crud.create'))
+                    ->icon(Heroicon::OutlinedPlus)
+                    ->schema([
+                        TextInput::make('key')
+                            ->label(__('networks.form.key'))
+                            ->required()
+                            ->alphaDash()
+                            ->helperText(__('networks.form.key_help')),
+                        TextInput::make('label')
+                            ->label(__('networks.form.label'))
+                            ->required(),
+                        TextInput::make('ipv4_cidr')
+                            ->label(__('networks.form.cidr'))
+                            ->placeholder(__('networks.table.auto'))
+                            ->helperText(__('networks.form.cidr_help')),
+                        Toggle::make('ipv4_nat')
+                            ->label(__('networks.form.nat'))
+                            ->default(true),
+                        Toggle::make('ipv4_dhcp')
+                            ->label(__('networks.form.dhcp'))
+                            ->default(true),
+                        Select::make('isolation')
+                            ->label(__('networks.form.isolation'))
+                            ->options(array_combine(Network::ISOLATIONS, Network::ISOLATIONS))
+                            ->default('open')
+                            ->required(),
+                        Toggle::make('is_default')
+                            ->label(__('networks.form.is_default'))
+                            ->default(false),
+                    ])
+                    ->action(function (array $data): void {
+                        try {
+                            app(NetworkManager::class)->create($data);
+                            Notification::make()->title(__('networks.crud.created'))->success()->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title(__('networks.crud.create_failed'))
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+            ])
+            ->recordActions([
+                Action::make('setDefault')
+                    ->label(__('networks.crud.set_default'))
+                    ->icon(Heroicon::OutlinedStar)
+                    ->visible(fn (Network $record) => ! $record->is_default)
+                    ->action(function (Network $record): void {
+                        app(NetworkManager::class)->setDefault($record);
+                        Notification::make()->title(__('networks.crud.default_set'))->success()->send();
+                    }),
+                Action::make('deleteNetwork')
+                    ->label(__('networks.crud.delete'))
+                    ->icon(Heroicon::OutlinedTrash)
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->visible(fn (Network $record) => ! $record->is_locked)
+                    ->action(function (Network $record): void {
+                        try {
+                            app(NetworkManager::class)->delete($record);
+                            Notification::make()->title(__('networks.crud.deleted'))->success()->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title(__('networks.crud.delete_failed'))
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+            ]);
+    }
+
+    /**
+     * Live Incus network state, keyed by name, fetched ONCE per request and
+     * memoized. Degrades to an empty map if the cluster is unreachable, so the
+     * table still renders (the used-by column just shows —).
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function liveNetworks(): array
+    {
+        if ($this->liveNetworksCache !== null) {
+            return $this->liveNetworksCache;
+        }
+
+        try {
+            $registry = app(\App\Services\Incus\ClusterRegistry::class);
+            $incus = app(\App\Services\Incus\IncusClient::class);
+            $cluster = collect($registry->all())->first();
+
+            $map = [];
+            if ($cluster) {
+                foreach ($incus->networks($cluster) as $n) {
+                    $map[$n['name']] = $n;
+                }
+            }
+
+            return $this->liveNetworksCache = $map;
+        } catch (\Throwable) {
+            return $this->liveNetworksCache = [];
+        }
+    }
+
     private function provisionManaged(bool $rebuild = false): void
     {
         $this->provisionToken = (string) Str::random(24);
         $this->provisioning = true;
-        $this->resolver['state'] = 'provisioning';
 
         ProvisionManagedNetwork::dispatch(
             $this->provisionToken,

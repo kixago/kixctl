@@ -4,6 +4,44 @@ return [
 
     'title' => 'Networks',
 
+    'table' => [
+        'heading' => 'Networks',
+        'key' => 'Key',
+        'label' => 'Label',
+        'subnet' => 'Subnet',
+        'auto' => 'auto',
+        'nat' => 'NAT',
+        'dhcp' => 'DHCP',
+        'isolation' => 'Isolation',
+        'default' => 'Default',
+        'used_by' => 'In use',
+        'managed' => 'Managed',
+        'locked' => 'Locked',
+    ],
+
+    'form' => [
+        'key' => 'Key',
+        'key_help' => 'Slug and Incus bridge name (e.g. kixbr1, workbr0). Letters, numbers, dashes.',
+        'label' => 'Label',
+        'cidr' => 'IPv4 CIDR',
+        'cidr_help' => 'Leave blank to let Incus auto-assign an unused private subnet. Pin e.g. 10.50.0.1/24 to choose your own.',
+        'nat' => 'NAT (internet egress)',
+        'dhcp' => 'Managed DHCP',
+        'isolation' => 'Isolation',
+        'is_default' => 'Make this the default network',
+    ],
+
+    'crud' => [
+        'create' => 'Create network',
+        'created' => 'Network created.',
+        'create_failed' => 'Could not create network',
+        'delete' => 'Delete',
+        'deleted' => 'Network deleted.',
+        'delete_failed' => 'Could not delete network',
+        'set_default' => 'Set default',
+        'default_set' => 'Default network updated.',
+    ],
+
     'resolver' => [
         'heading' => 'DNS resolver',
         'absent' => 'Resolver not created yet.',
