@@ -76,13 +76,25 @@ class ManagedDnsProvider implements IngressProvider
 
         $zone = ZoneFile::build($settings->zone, $records, $settings->record_ttl);
 
-        $this->incus->pushInstanceFile(
-            $cluster,
-            $settings->dns_instance,
-            (string) config('ingress.managed.zonefile_path'),
-            $zone,
-            0, 0, 0644,   // world-readable: CoreDNS runs as a DynamicUser
-        );
+        // The resolver may be brand-new (a rebuild just launched it): its zonefile
+        // directory is created by systemd-tmpfiles at boot, and on a cluster the
+        // member may not have registered the fresh instance for a beat. So ensure
+        // the parent dir exists and retry across that short window — otherwise the
+        // push 404s on a container that is still coming up. (launchBuiltImage guards
+        // the credstore path the same way.)
+        $zonefilePath = (string) config('ingress.managed.zonefile_path');
+        $zoneDir = dirname($zonefilePath);
+
+        retry(5, function () use ($cluster, $settings, $zoneDir, $zonefilePath, $zone): void {
+            $this->incus->ensureInstanceDirectory($cluster, $settings->dns_instance, $zoneDir, 0755);
+            $this->incus->pushInstanceFile(
+                $cluster,
+                $settings->dns_instance,
+                $zonefilePath,
+                $zone,
+                0, 0, 0644,   // world-readable: CoreDNS runs as a DynamicUser
+            );
+        }, 500);
 
         Log::info('ingress.published', [
             'resolver' => $resolver['instance'],

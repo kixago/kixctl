@@ -12,6 +12,7 @@ use App\Services\Ingress\IngressManager;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Provisions the kixctl-managed network (kixbr0) and the CoreDNS resolver that
@@ -93,7 +94,12 @@ class ProvisionManagedNetwork implements ShouldQueue
                     ));
                 },
                 function (string $stream, string $line) use (&$consoleSeq): void {
-                    event(new ProvisionConsoleLine($this->token, $stream, $line, ++$consoleSeq));
+                    // The console tails BUILD LOGS (stderr). stdout carries the
+                    // machine-readable JSON result — not console material — so it
+                    // never goes to the console channel.
+                    if ($stream === 'err') {
+                        event(new ProvisionConsoleLine($this->token, $stream, $line, ++$consoleSeq));
+                    }
                 },
             );
 
@@ -110,8 +116,36 @@ class ProvisionManagedNetwork implements ShouldQueue
 
             $this->notify('Network ready', "{$result['network']} up; resolver at {$result['ip']}.", true);
         } catch (\Throwable $e) {
-            $this->broadcastFailed($e->getMessage());
+            // Log the FULL exception (with trace) — the catch used to swallow it,
+            // leaving only a raw message on the toast and nothing to debug from.
+            Log::error('network.provision.failed', [
+                'token' => $this->token,
+                'rebuild' => $this->rebuild,
+                'exception' => $e,
+            ]);
+
+            $this->broadcastFailed($this->humanize($e));
         }
+    }
+
+    /** A short, human-readable failure line — never a raw Incus JSON envelope. */
+    private function humanize(\Throwable $e): string
+    {
+        $msg = $e->getMessage();
+
+        // Incus errors arrive as a JSON envelope inside the HTTP message; surface
+        // just the 'error' text (+ code) rather than dumping the whole blob.
+        $brace = strpos($msg, '{');
+        if ($brace !== false) {
+            $json = json_decode(substr($msg, $brace), true);
+            if (is_array($json) && isset($json['error']) && $json['error'] !== '') {
+                $code = $json['error_code'] ?? null;
+
+                return $code ? "Incus: {$json['error']} ({$code})" : "Incus: {$json['error']}";
+            }
+        }
+
+        return \Illuminate\Support\Str::limit($msg, 160);
     }
 
     private function broadcastFailed(string $message): void

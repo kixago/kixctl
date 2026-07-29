@@ -4,6 +4,9 @@ namespace App\Filament\Pages;
 
 use App\Jobs\ProvisionManagedNetwork;
 use App\Models\IngressSetting;
+use App\Models\Network;
+use App\Services\Incus\ClusterRegistry;
+use App\Services\Incus\IncusClient;
 use App\Services\Ingress\IngressManager;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -248,8 +251,8 @@ class IngressSettings extends Page implements HasActions, HasSchemas
     {
         $name = IngressSetting::current()->dns_instance;
 
-        $registry = app(\App\Services\Incus\ClusterRegistry::class);
-        $incus = app(\App\Services\Incus\IncusClient::class);
+        $registry = app(ClusterRegistry::class);
+        $incus = app(IncusClient::class);
 
         try {
             $cluster = collect($registry->all())->first();
@@ -272,7 +275,7 @@ class IngressSettings extends Page implements HasActions, HasSchemas
             'state' => ($ip !== null && $ip !== '') ? 'ready' : 'provisioning',
             'instance' => $name,
             'ip' => $ip,
-            'network' => \App\Models\Network::default()?->key,
+            'network' => Network::default()?->key,
         ];
     }
 
@@ -286,6 +289,7 @@ class IngressSettings extends Page implements HasActions, HasSchemas
     {
         $this->provisionToken = (string) Str::random(24);
         $this->provisioning = true;
+        $this->resolver['state'] = 'provisioning';
 
         ProvisionManagedNetwork::dispatch(
             $this->provisionToken,
