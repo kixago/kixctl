@@ -51,4 +51,21 @@ return [
         'profile' => env('DEPLOY_LAUNCH_PROFILE', 'kix'),
     ],
 
+    'reap' => [
+        // How long a superseded (cut-over-away) revision is kept before it
+        // becomes eligible for reaping. Within this window a revert is a one-click
+        // swing back to a still-present, intact container — no rebuild, no reverse
+        // migration (decisions.md D6). The revision's retirement time is recorded
+        // on the instance itself (user.kixctl.retired_at), so this window is the
+        // only knob; there is no separate revision ledger to keep in sync.
+        'days' => (int) env('DEPLOY_REAP_DAYS', 7),
+
+        // When kixctl cuts over to a new revision, stop the outgoing one. It stays
+        // on disk, intact, so a revert is start + re-point (a few seconds) — the
+        // resource-honest default at fleet scale, where dozens of retired
+        // revisions running idle would waste real CPU/RAM. Set false to leave
+        // retired revisions running for a zero-start revert.
+        'stop_retired' => (bool) env('DEPLOY_REAP_STOP_RETIRED', true),
+    ],
+
 ];
