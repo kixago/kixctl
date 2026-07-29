@@ -61,6 +61,48 @@ class NetworkManager
     }
 
     /**
+     * Register an existing, operator-owned network (br0, incusbr0, …) as an
+     * UNMANAGED reference kixctl can target but never mutates. The bridge must
+     * already exist on the cluster; we create ONLY the row — no createNetwork,
+     * ever. This is the "use my existing infra" path.
+     *
+     * @param  array<string,mixed>  $attrs  key (existing bridge name), label, description, isolation, is_default
+     */
+    public function register(array $attrs): Network
+    {
+        $key = (string) ($attrs['key'] ?? '');
+        $cluster = $this->cluster();
+
+        if (! $cluster) {
+            throw new RuntimeException('No active cluster to look up the network on.');
+        }
+        if (! $this->incus->networkExists($cluster, $key)) {
+            throw new RuntimeException("No network named '{$key}' exists on the cluster to register.");
+        }
+
+        $makeDefault = (bool) ($attrs['is_default'] ?? false);
+
+        $network = Network::create([
+            'key' => $key,
+            'label' => (string) ($attrs['label'] ?? $key),
+            'managed' => false,   // a reference — kixctl never mutates it
+            'ipv4_cidr' => null,  // not ours to state (the real bridge owns addressing)
+            'ipv4_nat' => false,  // display placeholders; the operator's bridge owns these
+            'ipv4_dhcp' => false,
+            'isolation' => (string) ($attrs['isolation'] ?? 'open'),
+            'is_locked' => false,
+            'description' => $attrs['description'] ?? null,
+            'sort' => (int) (Network::query()->max('sort') ?? 0) + 10,
+        ]);
+
+        if ($makeDefault) {
+            $this->setDefault($network);
+        }
+
+        return $network;
+    }
+
+    /**
      * Update a managed network, classifying every change by what's safe:
      *   - metadata (label, description, sort, isolation) -> row only, instant.
      *   - is_default = true -> setDefault (preserves exactly-one; false is ignored,
@@ -82,6 +124,19 @@ class NetworkManager
 
         $makeDefault = (bool) ($attrs['is_default'] ?? false);
         unset($attrs['is_default']); // applied via setDefault to keep exactly-one
+
+        // Unmanaged rows are pure REFERENCES — kixctl never mutates the operator's
+        // bridge. Only a managed network syncs config/description to Incus.
+        if (! $network->managed) {
+            unset($attrs['ipv4_cidr'], $attrs['ipv4_nat'], $attrs['ipv4_dhcp']); // not ours to set
+            $network->fill($attrs)->save();
+
+            if ($makeDefault && ! $network->is_default) {
+                $this->setDefault($network);
+            }
+
+            return $network->refresh();
+        }
 
         $cluster = $this->cluster();
         $bridgeExists = $cluster && $this->incus->networkExists($cluster, $network->key);
@@ -141,14 +196,19 @@ class NetworkManager
             throw new RuntimeException("'{$network->key}' is the locked default and cannot be deleted.");
         }
 
-        $cluster = $this->cluster();
+        // Only a MANAGED network owns its bridge — tear it down (refusing if it's
+        // in use). An unmanaged row is just a REFERENCE: deleting it forgets the
+        // reference and never touches the operator's real bridge (br0, br28, …).
+        if ($network->managed) {
+            $cluster = $this->cluster();
 
-        if ($cluster && $this->incus->networkExists($cluster, $network->key)) {
-            $info = $this->incus->network($cluster, $network->key);
-            if ((int) ($info['used_by'] ?? 0) > 0) {
-                throw new RuntimeException("Network '{$network->key}' is in use by {$info['used_by']} instance(s) and cannot be deleted.");
+            if ($cluster && $this->incus->networkExists($cluster, $network->key)) {
+                $info = $this->incus->network($cluster, $network->key);
+                if ((int) ($info['used_by'] ?? 0) > 0) {
+                    throw new RuntimeException("Network '{$network->key}' is in use by {$info['used_by']} instance(s) and cannot be deleted.");
+                }
+                $this->incus->deleteNetwork($cluster, $network->key);
             }
-            $this->incus->deleteNetwork($cluster, $network->key);
         }
 
         $wasDefault = $network->is_default;
