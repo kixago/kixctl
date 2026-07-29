@@ -991,6 +991,51 @@ class IncusClient
         $response->throw();
     }
 
+    /**
+     * Full-REPLACE a profile (PUT), overwriting config, devices and description
+     * in one shot. This is the DEVICE-editing primitive: unlike the config-only
+     * updateProfile() PATCH (which deliberately never carries a devices map so
+     * it can't strip storage/networking from inheritors), a PUT states the whole
+     * definition — so removing a device from $devices removes it on the cluster.
+     *
+     * Because a PUT replaces everything, the caller MUST read-modify-write: fetch
+     * the profile first (profile()), mutate the devices/config maps in memory,
+     * then hand the COMPLETE maps here. ProfileManager does exactly that and only
+     * ever for kixctl-MANAGED profiles — an unmanaged reference (power, default)
+     * never reaches this method. Synchronous, like the other profile writes.
+     *
+     * @param  array<string,array<string,string>>  $devices  the complete device map
+     * @param  array<string,string>  $config  the complete config map
+     */
+    public function putProfile(Cluster $cluster, string $name, array $devices = [], array $config = [], ?string $description = null): void
+    {
+        $encoded = rawurlencode($name);
+        $body = [
+            'config' => (object) $config,
+            'devices' => (object) $devices,
+        ];
+        if ($description !== null) {
+            $body['description'] = $description;
+        }
+
+        $response = $this->request($cluster)->put("/1.0/profiles/{$encoded}", $body);
+        $response->throw();
+    }
+
+    /**
+     * Delete a profile. Synchronous, mirroring deleteNetwork(). Incus refuses to
+     * delete a profile still in use by instances (returns an error), so the
+     * caller (ProfileManager) checks used_by first and surfaces a clear message
+     * rather than a raw Incus error. Only kixctl-MANAGED profiles are ever passed
+     * here; an unmanaged reference just forgets its row.
+     */
+    public function deleteProfile(Cluster $cluster, string $name): void
+    {
+        $encoded = rawurlencode($name);
+        $response = $this->request($cluster)->delete("/1.0/profiles/{$encoded}");
+        $response->throw();
+    }
+
     public function updateInstance(Cluster $cluster, string $name, array $payload, int $timeout = 60): void
     {
         $encoded = rawurlencode($name);

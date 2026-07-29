@@ -25,5 +25,10 @@ class DatabaseSeeder extends Seeder
         // The self-contained default network (kixbr0). Idempotent; safe to
         // re-run. Also runnable standalone: `php artisan db:seed --class=NetworkSeeder`.
         $this->call(NetworkSeeder::class);
+
+        // The self-contained default profile (kix) — the second owned entity,
+        // same locked-default pattern. Idempotent; safe to re-run. Standalone:
+        // `php artisan db:seed --class=ProfileSeeder`.
+        $this->call(ProfileSeeder::class);
     }
 }
