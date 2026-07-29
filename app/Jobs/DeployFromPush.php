@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\DeployAppConfig;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
+use App\Services\Ingress\IngressManager;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +13,8 @@ use Illuminate\Support\Facades\Process;
 
 /**
  * Deploy a pushed commit: build a NixOS image from the repo, import it over the
- * Incus REST API, launch it on a chosen target, then register a Caddy route.
+ * Incus REST API, launch it as an immutable per-revision instance on the owned
+ * bridge, then publish its route through the selected ingress provider.
  *
  * Slice B builds the image (the one host-touching step, via the kixctl-build
  * subsystem). Slice C imports that image and launches it as an IMMUTABLE,
@@ -21,8 +23,15 @@ use Illuminate\Support\Facades\Process;
  * state (that boundary is a later, deliberate slice); revert and cutover live in
  * later slices, so this job only ever ADDS a revision, never removes one.
  *
- * Slice D writes the Caddy route to the live revision. Runs on the existing
- * long-timeout `incus` lane (supervisor-incus).
+ * The revision lands on the kixctl-OWNED network + profile (kixbr0 + kix) by
+ * default — internal-by-default, reachable only through kixctl's own edge, never
+ * sprayed onto the operator's LAN (overridable in config/deploy.php).
+ *
+ * Slice D publishes the route via IngressManager: `edge` points <app>.<zone> at
+ * kixctl's own Caddy (which reverse-proxies to the revision) and writes CoreDNS;
+ * `managed` writes DNS to the revision; `manual` records only. The app key is the
+ * stable repo leaf, so a new push re-points the existing route — no churn. Runs
+ * on the existing long-timeout `incus` lane (supervisor-incus).
  */
 class DeployFromPush implements ShouldQueue
 {
@@ -43,7 +52,7 @@ class DeployFromPush implements ShouldQueue
         $this->onQueue('incus');
     }
 
-    public function handle(IncusClient $incus, ClusterRegistry $registry): void
+    public function handle(IncusClient $incus, ClusterRegistry $registry, IngressManager $ingress): void
     {
         // ── Build ────────────────────────────────────────────────────────────
         // Pin the build to the exact pushed commit: git+<clone url>?rev=<sha>.
@@ -104,6 +113,11 @@ class DeployFromPush implements ShouldQueue
         $target = (string) config('deploy.launch.target', 'powerhouse');
         $name = $this->instanceName();
 
+        // The kixctl-owned network + profile the revision lands on (kixbr0 + kix
+        // by default): internal-by-default, reachable only through kixctl's edge.
+        $profile = (string) config('deploy.launch.profile', 'kix');
+        $network = (string) config('deploy.launch.network', 'kixbr0');
+
         // ── Injected config: per-app env carried into every revision ─────────
         // Declared once in kixctl, delivered into each revision as credstore
         // files (/etc/credstore/<KEY>, 0400 root-only) pushed before the
@@ -152,7 +166,15 @@ class DeployFromPush implements ShouldQueue
                     'target' => $target,
                 ]);
             } else {
-                $incus->launchBuiltImage($cluster, $name, $fingerprint, $target, credentials: $credentials);
+                $incus->launchBuiltImage(
+                    $cluster,
+                    $name,
+                    $fingerprint,
+                    $target,
+                    profiles: $profile !== '' ? [$profile] : ['power'],
+                    credentials: $credentials,
+                    network: $network !== '' ? $network : null,
+                );
             }
         } catch (\Throwable $e) {
             Log::error('deploy.launch_failed', [
@@ -186,7 +208,58 @@ class DeployFromPush implements ShouldQueue
             'target' => $target,
             'fingerprint' => $fingerprint,
             'ip' => $ip,
+            'network' => $network,
         ]);
+
+        // ── Publish the route (Slice D) ──────────────────────────────────────
+        // Point <app>.<zone> at this revision through whatever provider the
+        // operator selected: `edge` ensures kixctl's own Caddy + CoreDNS and
+        // writes both (host -> caddy -> app); `managed` writes DNS; `manual`
+        // records only. The app KEY is the stable repo leaf (constant across
+        // revisions), so a new push just re-points the existing route at the new
+        // revision — no route churn, cutover/revert stay a later slice. Skipped
+        // if the lease never appeared: the instance is up but unrouted, and the
+        // operator can Publish from the Records tab once it settles.
+        if ($ip === null) {
+            Log::warning('deploy.no_ip_skipping_publish', ['instance' => $name]);
+
+            return;
+        }
+
+        try {
+            $ingress->publish(
+                $this->appKey(),
+                $name,
+                $ip,
+                (int) config('ingress.app_port', 8080),
+            );
+
+            Log::info('deploy.published', [
+                'app' => $this->appKey(),
+                'instance' => $name,
+                'ip' => $ip,
+            ]);
+        } catch (\Throwable $e) {
+            // A publish failure must not fail the deploy — the revision is live;
+            // routing can be re-asserted from the GUI. Log loudly and move on.
+            Log::error('deploy.publish_failed', [
+                'app' => $this->appKey(),
+                'instance' => $name,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * The stable app key for routing: the repo leaf, sanitized, WITHOUT the sha.
+     * Constant across revisions so <app>.<zone> never moves; instanceName() adds
+     * the sha for the per-revision instance.
+     */
+    private function appKey(): string
+    {
+        $leaf = (string) str($this->repository)->afterLast('/')->slug();
+
+        return $leaf !== '' ? $leaf : 'app';
     }
 
     /**
@@ -195,10 +268,8 @@ class DeployFromPush implements ShouldQueue
      */
     private function instanceName(): string
     {
-        $leaf = (string) str($this->repository)->afterLast('/')->slug();
-        $leaf = $leaf !== '' ? $leaf : 'app';
         $sha = substr($this->commit, 0, 7);
 
-        return substr($leaf.'-'.$sha, 0, 63);
+        return substr($this->appKey().'-'.$sha, 0, 63);
     }
 }

@@ -39,6 +39,16 @@ return [
         // First cut: everything lands on powerhouse; a per-deploy target picker
         // is a later slice.
         'target' => env('DEPLOY_LAUNCH_TARGET', 'powerhouse'),
+
+        // The kixctl-OWNED network + profile every deployed revision lands on.
+        // The product default is the owned bridge (kixbr0) via the kix profile:
+        // a deployed app is internal-by-default and reachable ONLY through
+        // kixctl's own edge (CoreDNS + Caddy), never sprayed onto the operator's
+        // LAN. kixbr0 has NAT, so the app still reaches operator services on br0
+        // (e.g. its database) outbound. Override to '' / 'power' to place deploys
+        // on the operator's network instead (old behaviour).
+        'network' => env('DEPLOY_LAUNCH_NETWORK', 'kixbr0'),
+        'profile' => env('DEPLOY_LAUNCH_PROFILE', 'kix'),
     ],
 
 ];
