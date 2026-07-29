@@ -437,6 +437,28 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                                 ->send();
                         }
                     }),
+                Action::make('networksToDefaults')
+                    ->label(__('networks.crud.defaults'))
+                    ->icon(Heroicon::OutlinedArrowUturnLeft)
+                    ->color('gray')
+                    ->visible(fn () => $this->canResetNetworks())
+                    ->requiresConfirmation()
+                    ->modalDescription(__('networks.crud.defaults_confirm'))
+                    ->action(function (): void {
+                        $result = app(NetworkManager::class)->backToDefaults();
+
+                        $removed = $result['removed'] ? implode(', ', $result['removed']) : '—';
+                        $body = __('networks.crud.defaults_done', ['removed' => $removed]);
+                        if (! empty($result['skipped'])) {
+                            $body .= ' '.__('networks.crud.defaults_skipped', ['skipped' => implode('; ', $result['skipped'])]);
+                        }
+
+                        Notification::make()
+                            ->title(__('networks.crud.defaults_title'))
+                            ->body($body)
+                            ->success()
+                            ->send();
+                    }),
             ])
             ->recordActions([
                 Action::make('editNetwork')
@@ -514,18 +536,25 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                         Notification::make()->title(__('networks.crud.default_set'))->success()->send();
                     }),
                 Action::make('deleteNetwork')
-                    ->label(__('networks.crud.delete'))
-                    ->icon(Heroicon::OutlinedTrash)
-                    ->color('danger')
+                    ->label(fn (Network $record) => $record->managed ? __('networks.crud.delete') : __('networks.crud.deregister'))
+                    ->icon(fn (Network $record) => $record->managed ? Heroicon::OutlinedTrash : Heroicon::OutlinedLinkSlash)
+                    ->color(fn (Network $record) => $record->managed ? 'danger' : 'gray')
                     ->requiresConfirmation()
+                    ->modalDescription(fn (Network $record) => $record->managed
+                        ? __('networks.crud.delete_confirm')
+                        : __('networks.crud.deregister_confirm', ['key' => $record->key]))
                     ->visible(fn (Network $record) => ! $record->is_locked)
                     ->action(function (Network $record): void {
+                        $wasManaged = $record->managed;
                         try {
                             app(NetworkManager::class)->delete($record);
-                            Notification::make()->title(__('networks.crud.deleted'))->success()->send();
+                            Notification::make()
+                                ->title($wasManaged ? __('networks.crud.deleted') : __('networks.crud.deregistered'))
+                                ->success()
+                                ->send();
                         } catch (\Throwable $e) {
                             Notification::make()
-                                ->title(__('networks.crud.delete_failed'))
+                                ->title($wasManaged ? __('networks.crud.delete_failed') : __('networks.crud.deregister_failed'))
                                 ->body($e->getMessage())
                                 ->danger()
                                 ->send();
@@ -572,6 +601,20 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
      *
      * @return array<string,string>
      */
+    /**
+     * Whether a network reset is meaningful right now: there's a kixctl-created
+     * extra to remove, or the default has been moved off the locked kixbr0. The
+     * Back-to-defaults action hides when the set is already at seed.
+     */
+    private function canResetNetworks(): bool
+    {
+        $hasExtras = Network::query()->where('is_locked', false)->where('managed', true)->exists();
+        $fallback = Network::fallback();
+        $defaultMoved = $fallback && ! $fallback->is_default;
+
+        return $hasExtras || $defaultMoved;
+    }
+
     private function registerableNetworks(): array
     {
         $taken = Network::query()->pluck('key')->all();

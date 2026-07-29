@@ -225,6 +225,58 @@ class NetworkManager
     }
 
     /**
+     * Reset the network set to seed: remove kixctl-CREATED extras (non-locked
+     * managed networks like kixbr1) and re-assert the locked kixbr0 as the
+     * default. Never touches the locked row or UNMANAGED references (br0, br28,
+     * … — those are the operator's own infra, deliberately registered). A managed
+     * extra that's in use is skipped (delete() refuses it), not force-removed.
+     *
+     * $dryRun returns the plan without changing anything — used by the probe and
+     * to populate the confirmation before the real reset.
+     *
+     * @return array{removed:list<string>, skipped:list<string>, kept_locked:string, kept_unmanaged:list<string>}
+     */
+    public function backToDefaults(bool $dryRun = false): array
+    {
+        $locked = Network::ensureDefault(); // kixbr0 — always present
+
+        $extras = Network::query()
+            ->where('is_locked', false)
+            ->where('managed', true)
+            ->get();
+
+        $keptUnmanaged = Network::query()->where('managed', false)->pluck('key')->all();
+
+        $removed = [];
+        $skipped = [];
+
+        foreach ($extras as $network) {
+            if ($dryRun) {
+                $removed[] = $network->key;
+
+                continue;
+            }
+            try {
+                $this->delete($network); // tears down the bridge; refuses if in use
+                $removed[] = $network->key;
+            } catch (\Throwable $e) {
+                $skipped[] = $network->key.' ('.$e->getMessage().')';
+            }
+        }
+
+        if (! $dryRun) {
+            $this->setDefault($locked->refresh()); // exactly-one, back on kixbr0
+        }
+
+        return [
+            'removed' => $removed,
+            'skipped' => $skipped,
+            'kept_locked' => $locked->key,
+            'kept_unmanaged' => $keptUnmanaged,
+        ];
+    }
+
+    /**
      * Make $network the sole is_default row. It may be a managed network or an
      * unmanaged reference (you can point the default at your own bridge). Pure
      * DB — no cluster mutation.

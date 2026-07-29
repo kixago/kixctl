@@ -52,8 +52,18 @@ return [
         'delete' => 'Delete',
         'deleted' => 'Network deleted.',
         'delete_failed' => 'Could not delete network',
+        'delete_confirm' => 'This deletes the network and tears down its Incus bridge. Move any instances off it first.',
+        'deregister' => 'Deregister',
+        'deregistered' => 'Reference removed. The bridge was not touched.',
+        'deregister_failed' => 'Could not deregister network',
+        'deregister_confirm' => "This removes only kixctl's reference to :key. The :key bridge and everything running on it are left completely untouched.",
         'set_default' => 'Set default',
         'default_set' => 'Default network updated.',
+        'defaults' => 'Back to defaults',
+        'defaults_confirm' => 'Remove kixctl-created networks and re-assert kixbr0 as the default. Your registered (unmanaged) networks and the locked default are left alone. Networks currently in use are skipped.',
+        'defaults_title' => 'Networks reset',
+        'defaults_done' => 'Removed: :removed. kixbr0 is the default again.',
+        'defaults_skipped' => 'Skipped (in use): :skipped',
     ],
 
     'resolver' => [
