@@ -109,6 +109,7 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                             ->live()
                             ->options([
                                 'managed' => __('ingress.provider.managed'),
+                                'edge' => __('ingress.provider.edge'),
                                 'manual' => __('ingress.provider.manual'),
                             ])
                             ->helperText(__('ingress.form.provider_help')),

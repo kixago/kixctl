@@ -19,6 +19,7 @@ return [
 
     'provider' => [
         'managed' => 'Managed — kixctl runs DNS for me',
+        'edge' => 'Edge — kixctl runs DNS + its own Caddy',
         'manual' => 'Manual — I run my own DNS',
     ],
 
@@ -53,6 +54,35 @@ return [
 
     'status' => [
         'heading' => 'Status',
+    ],
+
+    'records' => [
+        'heading' => 'Ingress records',
+        'intro' => 'One row per app: the host clients hit, and the container it proxies to. Saving publishes to CoreDNS and the owned Caddy edge — a build console shows progress and the page keeps working.',
+        'app' => 'App',
+        'app_help' => 'The app key. The host defaults to <app>.<zone>.',
+        'host' => 'Host',
+        'host_help' => 'Leave blank to use <app>.<zone>. Set it to serve a different name.',
+        'ip' => 'Target IP',
+        'ip_help' => "The app container's address on kixbr0.",
+        'port' => 'Target port',
+        'port_help' => 'The port the app listens on inside its container.',
+        'instance' => 'Live instance',
+        'instance_help' => 'Optional — the revision currently serving this app.',
+        'create' => 'Add record',
+        'created' => 'Record added.',
+        'edit' => 'Edit',
+        'updated' => 'Record updated.',
+        'delete' => 'Delete',
+        'deleted' => 'Record deleted.',
+        'delete_confirm' => 'Remove this record and re-publish without it. The app container is not touched.',
+        'publish' => 'Publish now',
+        'publish_title' => 'Publishing ingress',
+        'publish_done' => 'Ingress published.',
+        'publish_failed' => 'Publish failed.',
+        'dismiss' => 'dismiss',
+        'empty_heading' => 'No records yet',
+        'empty_description' => 'Add one, or deploy an app — deploys populate this automatically.',
     ],
 
 ];

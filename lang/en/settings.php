@@ -8,6 +8,7 @@ return [
         'network' => 'Network',
         'profiles' => 'Profiles',
         'ingress' => 'Ingress',
+        'records' => 'Records',
         'storage' => 'Storage',
         'soon' => 'soon',
     ],

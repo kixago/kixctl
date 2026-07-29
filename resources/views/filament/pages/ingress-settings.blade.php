@@ -2,7 +2,7 @@
     {{-- Settings shell: tabbed chips. Network first (create-first resolver flow),
          Ingress (zone/records), Storage coming soon. Tab state is Livewire-driven. --}}
     <div style="display:flex; align-items:center; gap:.4rem; margin-bottom:1.25rem; border-bottom:1px solid rgba(255,255,255,.08); padding-bottom:.75rem;">
-        @foreach (['network', 'profiles', 'ingress'] as $chip)
+        @foreach (['network', 'profiles', 'ingress', 'records'] as $chip)
             <button
                 type="button"
                 wire:click="$set('tab', '{{ $chip }}')"
@@ -152,6 +152,14 @@
 
             <div wire:poll.15s="refreshStatus" style="display:none;"></div>
         </x-filament::section>
+    @endif
+
+    {{-- ==================== RECORDS TAB ==================== --}}
+    {{-- CRUD over app_routes; each save fires the async publish (CoreDNS + the
+         owned Caddy edge) with a live spinner + console. Standalone Livewire
+         table so the proven Network/Profiles tabs are untouched. --}}
+    @if ($tab === 'records')
+        @livewire('ingress-records-table')
     @endif
 
     {{-- Live provisioning toast: quick corner confirmation on the phase rail. The
