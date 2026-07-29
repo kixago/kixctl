@@ -22,6 +22,7 @@ class IngressManager
 
         return match ($settings->provider) {
             'manual' => $this->app->make(ManualProvider::class),
+            'edge' => $this->app->make(ManagedEdgeProvider::class),
             default => $this->app->make(ManagedDnsProvider::class),
         };
     }

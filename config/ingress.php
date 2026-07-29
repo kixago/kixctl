@@ -21,6 +21,10 @@ return [
     |              YOU point your own DNS (Technitium, Unbound, …) at it. For the
     |              operator who already has topology and wants to integrate, not
     |              rely. Switching back to `managed` hands control back to kixctl.
+    |   edge     — the self-contained edge: kixctl owns a Caddy edge AND CoreDNS.
+    |              One publish points every <app>.<zone> at the owned caddy (DNS)
+    |              and reverse-proxies host -> app in caddy. Fully internal, all on
+    |              kixbr0; the operator's caddy-server is never touched. Opt-in.
     |
     */
 
