@@ -283,5 +283,49 @@
                 },
             };
         }
+
+        // Watches the public `deploys` channel — a push-triggered build the Updates
+        // tab did NOT initiate — and drives the in-tab deploy banner. Keeps a short
+        // list of in-flight/just-finished builds keyed by instance; on a terminal
+        // phase it colours the row, asks Livewire to re-pull the revision list (so the
+        // landed revision's "ready to promote" banner surfaces on its own), then fades
+        // the transient row out. The channel name is stable (not token-keyed), so it
+        // leaves on teardown or re-entering the tab would stack duplicate listeners.
+        function deployWatch() {
+            return {
+                items: [],
+                init() {
+                    if (!window.Echo) return;
+                    window.Echo.channel('deploys')
+                        .listen('.progress', (e) => this.onProgress(e));
+                },
+                destroy() {
+                    if (window.Echo) window.Echo.leaveChannel('deploys');
+                },
+                onProgress(e) {
+                    const terminal = ['landed', 'published', 'failed'].includes(e.phase);
+                    const row = {
+                        instance: e.instance,
+                        app: e.app,
+                        phase: e.phase,
+                        terminal: terminal,
+                        message: e.message || (terminal ? 'Done.' : 'Building…'),
+                    };
+                    const i = this.items.findIndex((d) => d.instance === e.instance);
+                    if (i === -1) this.items.push(row); else this.items.splice(i, 1, row);
+
+                    if (terminal) {
+                        // Let Incus + app_routes settle, then refresh so the real
+                        // per-app banner appears; clear the transient row after.
+                        setTimeout(() => {
+                            if (window.Livewire) window.Livewire.dispatch('deploys-changed');
+                        }, 1500);
+                        setTimeout(() => {
+                            this.items = this.items.filter((d) => d.instance !== e.instance);
+                        }, 6000);
+                    }
+                },
+            };
+        }
     </script>
 </x-filament-panels::page>

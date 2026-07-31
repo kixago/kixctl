@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Events\DeployProgress;
 use App\Models\DeployAppConfig;
 use App\Services\Deploy\DeploymentManager;
 use App\Services\Incus\ClusterRegistry;
@@ -33,6 +34,11 @@ use Illuminate\Support\Facades\Process;
  * operator to promote with a cutover. A push therefore never silently swings live
  * traffic onto unproven code; promotion, revert, and reap are explicit operator
  * actions (or, later, a policy). Runs on the long-timeout `incus` lane.
+ *
+ * Progress is announced on the public `deploys` channel (DeployProgress) at build
+ * start and at every terminal point — the Updates tab did not initiate this build,
+ * so this broadcast is the only way an open tab learns a revision landed without a
+ * manual refresh.
  */
 class DeployFromPush implements ShouldQueue
 {
@@ -55,6 +61,9 @@ class DeployFromPush implements ShouldQueue
 
     public function handle(IncusClient $incus, ClusterRegistry $registry, DeploymentManager $deployment): void
     {
+        $short = substr($this->commit, 0, 7);
+        $this->announce('building', "Building {$this->appKey()} {$short}…");
+
         // ── Build ────────────────────────────────────────────────────────────
         // Pin the build to the exact pushed commit: git+<clone url>?rev=<sha>.
         // Nix fetches the repo at that revision hermetically — no local clone.
@@ -75,6 +84,7 @@ class DeployFromPush implements ShouldQueue
                 'exit_code' => $result->exitCode(),
                 'stderr' => $result->errorOutput(),
             ]);
+            $this->announce('failed', "Build failed for {$this->appKey()} {$short}.");
 
             return;
         }
@@ -86,6 +96,7 @@ class DeployFromPush implements ShouldQueue
                 'commit' => $this->commit,
                 'stdout' => $result->output(),
             ]);
+            $this->announce('failed', "Build produced no image for {$this->appKey()} {$short}.");
 
             return;
         }
@@ -107,6 +118,7 @@ class DeployFromPush implements ShouldQueue
                 'repository' => $this->repository,
                 'commit' => $this->commit,
             ]);
+            $this->announce('failed', 'No cluster available to deploy onto.');
 
             return;
         }
@@ -153,6 +165,7 @@ class DeployFromPush implements ShouldQueue
                 'commit' => $this->commit,
                 'error' => $e->getMessage(),
             ]);
+            $this->announce('failed', "Image import failed for {$this->appKey()} {$short}.");
 
             return;
         }
@@ -185,6 +198,7 @@ class DeployFromPush implements ShouldQueue
                 'target' => $target,
                 'error' => $e->getMessage(),
             ]);
+            $this->announce('failed', "Launch failed for {$this->appKey()} {$short}.");
 
             return;
         }
@@ -222,6 +236,7 @@ class DeployFromPush implements ShouldQueue
         // it settles.
         if ($ip === null) {
             Log::warning('deploy.no_ip_skipping_route', ['instance' => $name]);
+            $this->announce('failed', "{$this->appKey()} {$short} came up but took no address.");
 
             return;
         }
@@ -240,6 +255,15 @@ class DeployFromPush implements ShouldQueue
                 'ip' => $ip,
                 'outcome' => $outcome, // 'published' (went live) | 'alongside' (update ready)
             ]);
+
+            // Terminal announce, phase mirrors the routing outcome so the tab can
+            // colour it: a first revision goes live; a later one is ready to promote.
+            $this->announce(
+                $outcome === 'published' ? 'published' : 'landed',
+                $outcome === 'published'
+                    ? "{$this->appKey()} {$short} is live"
+                    : "{$this->appKey()} {$short} landed — ready to promote",
+            );
         } catch (\Throwable $e) {
             // A routing failure must not fail the deploy — the revision is up;
             // routing can be re-asserted from the GUI. Log loudly and move on.
@@ -248,6 +272,28 @@ class DeployFromPush implements ShouldQueue
                 'instance' => $name,
                 'error' => $e->getMessage(),
             ]);
+            $this->announce('failed', "{$this->appKey()} {$short} deployed but routing failed — re-publish from the GUI.");
+        }
+    }
+
+    /**
+     * Broadcast one deploy-progress step on the public `deploys` channel. The
+     * Updates tab (which did not start this build) subscribes and narrates it,
+     * then refreshes on a terminal phase. Best-effort: a broadcast failure must
+     * never break a deploy, so it is swallowed and logged.
+     */
+    private function announce(string $phase, string $message): void
+    {
+        try {
+            event(new DeployProgress(
+                app: $this->appKey(),
+                phase: $phase,
+                instance: $this->instanceName(),
+                sha: substr($this->commit, 0, 7),
+                message: $message,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('deploy.announce_failed', ['phase' => $phase, 'error' => $e->getMessage()]);
         }
     }
 

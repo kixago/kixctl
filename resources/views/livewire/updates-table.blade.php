@@ -6,6 +6,33 @@
     </div>
     <p style="opacity:.7; font-size:.85rem; margin-bottom:1rem;">{{ __('updates.intro') }}</p>
 
+    {{-- Live deploy watcher. A push-triggered build (DeployFromPush) broadcasts on
+         the public `deploys` channel; this tab did NOT initiate it, so it subscribes
+         unconditionally and shows an in-flight spinner per revision, then a terminal
+         line. On a terminal phase the watcher asks Livewire to re-pull apps() so the
+         landed revision's "ready to promote" banner appears with no manual refresh —
+         the exact gap where "nothing happened" reports come from. --}}
+    <div x-data="deployWatch()" x-init="init()" x-show="items.length > 0" x-cloak style="margin-bottom:1rem;">
+        <template x-for="d in items" :key="d.instance">
+            <div
+                style="display:flex; align-items:center; gap:.6rem; margin-bottom:.5rem; padding:.6rem .75rem; border-radius:.5rem;"
+                :style="d.phase === 'failed'
+                    ? 'background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.25);'
+                    : (d.terminal
+                        ? 'background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.25);'
+                        : 'background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.22);')"
+            >
+                <span
+                    x-show="!d.terminal"
+                    style="width:.7rem;height:.7rem;border-radius:9999px;border:2px solid #6b7280;border-top-color:#e5e7eb;display:inline-block;animation:dwspin .8s linear infinite;flex-shrink:0;"
+                ></span>
+                <span x-show="d.terminal" x-cloak :style="d.phase === 'failed' ? 'color:#ef4444' : 'color:#22c55e'">●</span>
+                <span style="font-size:.85rem;" x-text="d.message"></span>
+            </div>
+        </template>
+        <style>@keyframes dwspin { to { transform: rotate(360deg); } } [x-cloak]{display:none!important;}</style>
+    </div>
+
     @if (empty($apps))
         <div style="border:1px dashed rgba(255,255,255,.12); border-radius:.6rem; padding:1.5rem; text-align:center;">
             <p style="font-weight:600; margin-bottom:.35rem;">{{ __('updates.empty.heading') }}</p>

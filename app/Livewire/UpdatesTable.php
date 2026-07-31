@@ -187,6 +187,21 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
         $this->running = false;
     }
 
+    /**
+     * A push-triggered deploy reached a terminal phase (landed / published /
+     * failed). The Alpine deploy watcher dispatches this once the build finishes;
+     * the empty body is enough — handling a Livewire event re-runs render(), which
+     * re-reads apps() so a freshly-landed revision's "ready to promote" banner
+     * appears with no manual refresh. The in-flight building spinner itself is
+     * Alpine-only, because a revision mid-build is not yet an Incus instance and so
+     * cannot come from apps().
+     */
+    #[On('deploys-changed')]
+    public function onDeploysChanged(): void
+    {
+        //
+    }
+
     public function render()
     {
         return view('livewire.updates-table', ['apps' => $this->apps()]);
