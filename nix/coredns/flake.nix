@@ -32,24 +32,21 @@
           # Authoritative apps zone. The `file` plugin reloads when the SOA
           # serial changes; kixctl pushes the zonefile and bumps the serial on
           # every deploy/cutover.
-          services.coredns = {
-            enable = true;
-            config = ''
-              ${zone}:53 {
-                  file ${zoneFile} {
-                      reload 5s
-                  }
-                  errors
-                  log
-              }
-            '';
+          services = {
+            coredns = {
+              enable = true;
+              config = ''
+                ${zone}:53 {
+                    file ${zoneFile} {
+                        reload 5s
+                    }
+                    errors
+                    log
+                }
+              '';
+            };
+            resolved.enable = false;
           };
-
-          # kixctl pushes the zonefile into this directory.
-          systemd.tmpfiles.rules = [
-            "d ${zoneDir} 0755 root root -"
-          ];
-
           networking = {
             # Inbound DNS. (The firewall is on by default under NixOS.)
             firewall = {
@@ -71,13 +68,19 @@
           # Force networkd into the image (useNetworkd alone doesn't survive the
           # lxc-container base). Match en*/eth* generically — never a host-
           # specific interface name.
-          systemd.network = {
-            enable = true;
-            wait-online.enable = false;
-            networks."10-eth0" = {
-              matchConfig.Name = "eth0";
-              networkConfig.DHCP = "ipv4";
+          systemd = {
+            network = {
+              enable = true;
+              wait-online.enable = false;
+              networks."10-eth0" = {
+                matchConfig.Name = "eth0";
+                networkConfig.DHCP = "ipv4";
+              };
             };
+            # kixctl pushes the zonefile into this directory.
+            tmpfiles.rules = [
+              "d ${zoneDir} 0755 root root -"
+            ];
           };
 
           # Stateless resolver — match your fleet's if you prefer.
