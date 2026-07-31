@@ -2,7 +2,7 @@
     {{-- Settings shell: tabbed chips. Network first (create-first resolver flow),
          Ingress (zone/records), Storage coming soon. Tab state is Livewire-driven. --}}
     <div style="display:flex; align-items:center; gap:.4rem; margin-bottom:1.25rem; border-bottom:1px solid rgba(255,255,255,.08); padding-bottom:.75rem;">
-        @foreach (['network', 'profiles', 'ingress', 'records'] as $chip)
+        @foreach (['network', 'profiles', 'ingress', 'records', 'updates'] as $chip)
             <button
                 type="button"
                 wire:click="$set('tab', '{{ $chip }}')"
@@ -160,6 +160,14 @@
          table so the proven Network/Profiles tabs are untouched. --}}
     @if ($tab === 'records')
         @livewire('ingress-records-table')
+    @endif
+
+    {{-- ==================== UPDATES TAB ==================== --}}
+    {{-- Per-app deploy lifecycle: promote a landed revision (cutover), swing back
+         (revert), or prune retired ones (reap). Standalone Livewire component so
+         the proven Network/Profiles tabs are untouched. --}}
+    @if ($tab === 'updates')
+        @livewire('updates-table')
     @endif
 
     {{-- Live provisioning toast: quick corner confirmation on the phase rail. The
