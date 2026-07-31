@@ -12,7 +12,11 @@
          line. On a terminal phase the watcher asks Livewire to re-pull apps() so the
          landed revision's "ready to promote" banner appears with no manual refresh —
          the exact gap where "nothing happened" reports come from. --}}
-    <div x-data="deployWatch()" x-init="init()" x-show="items.length > 0" x-cloak style="margin-bottom:1rem;">
+    @php($dwI18n = [
+        'building' => __('updates.deploy.fallback.building'),
+        'done' => __('updates.deploy.fallback.done'),
+    ])
+    <div x-data="deployWatch(@js($dwI18n))" x-init="init()" x-show="items.length > 0" x-cloak style="margin-bottom:1rem;">
         <template x-for="d in items" :key="d.instance">
             <div
                 style="display:flex; align-items:center; gap:.6rem; margin-bottom:.5rem; padding:.6rem .75rem; border-radius:.5rem;"

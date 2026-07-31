@@ -62,7 +62,7 @@ class DeployFromPush implements ShouldQueue
     public function handle(IncusClient $incus, ClusterRegistry $registry, DeploymentManager $deployment): void
     {
         $short = substr($this->commit, 0, 7);
-        $this->announce('building', "Building {$this->appKey()} {$short}…");
+        $this->announce('building', __('updates.deploy.building', ['app' => $this->appKey(), 'sha' => $short]));
 
         // ── Build ────────────────────────────────────────────────────────────
         // Pin the build to the exact pushed commit: git+<clone url>?rev=<sha>.
@@ -84,7 +84,7 @@ class DeployFromPush implements ShouldQueue
                 'exit_code' => $result->exitCode(),
                 'stderr' => $result->errorOutput(),
             ]);
-            $this->announce('failed', "Build failed for {$this->appKey()} {$short}.");
+            $this->announce('failed', __('updates.deploy.build_failed', ['app' => $this->appKey(), 'sha' => $short]));
 
             return;
         }
@@ -96,7 +96,7 @@ class DeployFromPush implements ShouldQueue
                 'commit' => $this->commit,
                 'stdout' => $result->output(),
             ]);
-            $this->announce('failed', "Build produced no image for {$this->appKey()} {$short}.");
+            $this->announce('failed', __('updates.deploy.no_image', ['app' => $this->appKey(), 'sha' => $short]));
 
             return;
         }
@@ -118,7 +118,7 @@ class DeployFromPush implements ShouldQueue
                 'repository' => $this->repository,
                 'commit' => $this->commit,
             ]);
-            $this->announce('failed', 'No cluster available to deploy onto.');
+            $this->announce('failed', __('updates.deploy.no_cluster'));
 
             return;
         }
@@ -165,7 +165,7 @@ class DeployFromPush implements ShouldQueue
                 'commit' => $this->commit,
                 'error' => $e->getMessage(),
             ]);
-            $this->announce('failed', "Image import failed for {$this->appKey()} {$short}.");
+            $this->announce('failed', __('updates.deploy.import_failed', ['app' => $this->appKey(), 'sha' => $short]));
 
             return;
         }
@@ -198,7 +198,7 @@ class DeployFromPush implements ShouldQueue
                 'target' => $target,
                 'error' => $e->getMessage(),
             ]);
-            $this->announce('failed', "Launch failed for {$this->appKey()} {$short}.");
+            $this->announce('failed', __('updates.deploy.launch_failed', ['app' => $this->appKey(), 'sha' => $short]));
 
             return;
         }
@@ -236,7 +236,7 @@ class DeployFromPush implements ShouldQueue
         // it settles.
         if ($ip === null) {
             Log::warning('deploy.no_ip_skipping_route', ['instance' => $name]);
-            $this->announce('failed', "{$this->appKey()} {$short} came up but took no address.");
+            $this->announce('failed', __('updates.deploy.no_ip', ['app' => $this->appKey(), 'sha' => $short]));
 
             return;
         }
@@ -261,8 +261,8 @@ class DeployFromPush implements ShouldQueue
             $this->announce(
                 $outcome === 'published' ? 'published' : 'landed',
                 $outcome === 'published'
-                    ? "{$this->appKey()} {$short} is live"
-                    : "{$this->appKey()} {$short} landed — ready to promote",
+                    ? __('updates.deploy.published', ['app' => $this->appKey(), 'sha' => $short])
+                    : __('updates.deploy.landed', ['app' => $this->appKey(), 'sha' => $short]),
             );
         } catch (\Throwable $e) {
             // A routing failure must not fail the deploy — the revision is up;
@@ -272,7 +272,7 @@ class DeployFromPush implements ShouldQueue
                 'instance' => $name,
                 'error' => $e->getMessage(),
             ]);
-            $this->announce('failed', "{$this->appKey()} {$short} deployed but routing failed — re-publish from the GUI.");
+            $this->announce('failed', __('updates.deploy.route_failed', ['app' => $this->appKey(), 'sha' => $short]));
         }
     }
 

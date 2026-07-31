@@ -291,9 +291,10 @@
         // landed revision's "ready to promote" banner surfaces on its own), then fades
         // the transient row out. The channel name is stable (not token-keyed), so it
         // leaves on teardown or re-entering the tab would stack duplicate listeners.
-        function deployWatch() {
+        function deployWatch(i18n) {
             return {
                 items: [],
+                i18n: i18n,
                 init() {
                     if (!window.Echo) return;
                     window.Echo.channel('deploys')
@@ -309,7 +310,7 @@
                         app: e.app,
                         phase: e.phase,
                         terminal: terminal,
-                        message: e.message || (terminal ? 'Done.' : 'Building…'),
+                        message: e.message || (terminal ? this.i18n.done : this.i18n.building),
                     };
                     const i = this.items.findIndex((d) => d.instance === e.instance);
                     if (i === -1) this.items.push(row); else this.items.splice(i, 1, row);

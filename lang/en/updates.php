@@ -49,4 +49,24 @@ return [
         'reap_error' => 'Could not read what is eligible right now: :error',
     ],
 
+    'deploy' => [
+        'building' => 'Building :app :sha…',
+        'build_failed' => 'Build failed for :app :sha.',
+        'no_image' => 'Build produced no image for :app :sha.',
+        'no_cluster' => 'No cluster available to deploy onto.',
+        'import_failed' => 'Image import failed for :app :sha.',
+        'launch_failed' => 'Launch failed for :app :sha.',
+        'no_ip' => ':app :sha came up but took no address.',
+        'published' => ':app :sha is live',
+        'landed' => ':app :sha landed — ready to promote',
+        'route_failed' => ':app :sha deployed but routing failed — re-publish from the panel.',
+
+        // Client-side fallbacks for the live banner, used only if a broadcast
+        // ever arrives with no message (the server always sets one).
+        'fallback' => [
+            'building' => 'Building…',
+            'done' => 'Done.',
+        ],
+    ],
+
 ];
