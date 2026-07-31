@@ -29,50 +29,67 @@ ATTR="default"
 KIND="container"
 OUT=""
 
-die() { printf 'kixctl-build: %s\n' "$1" >&2; exit 1; }
+die() {
+    printf 'kixctl-build: %s\n' "$1" >&2
+    exit 1
+}
 
 while [ $# -gt 0 ]; do
-  case "$1" in
-    --flake) FLAKE="${2:-}"; shift 2 ;;
-    --attr)  ATTR="${2:-}";  shift 2 ;;
-    --kind)  KIND="${2:-}";  shift 2 ;;
-    --out)   OUT="${2:-}";   shift 2 ;;
+    case "$1" in
+    --flake)
+        FLAKE="${2:-}"
+        shift 2
+        ;;
+    --attr)
+        ATTR="${2:-}"
+        shift 2
+        ;;
+    --kind)
+        KIND="${2:-}"
+        shift 2
+        ;;
+    --out)
+        OUT="${2:-}"
+        shift 2
+        ;;
     *) die "unknown argument: $1" ;;
-  esac
+    esac
 done
 
 # ── Validate inputs: the program refuses anything it wasn't designed to run ───
 [ -n "$FLAKE" ] || die "--flake is required"
 case "$FLAKE" in
-  git+http://*|git+https://*)
+git+http://* | git+https://*)
     # A control-plane build must be pinned to an exact commit — reproducible,
     # and no "whatever main is right now" ambiguity.
-    printf '%s' "$FLAKE" | grep -qE '\?rev=[0-9a-f]{7,40}' \
-      || die "git flakeref must be pinned with ?rev=<sha>: $FLAKE" ;;
-  path:*|/*|./*|.) : ;;   # local flake — by-hand / dev builds only
-  *) die "unsupported --flake (use git+https://…?rev=<sha> or a local path): $FLAKE" ;;
+    printf '%s' "$FLAKE" | grep -qE '\?rev=[0-9a-f]{7,40}' ||
+        die "git flakeref must be pinned with ?rev=<sha>: $FLAKE"
+    ;;
+path:* | /* | ./* | .) : ;; # local flake — by-hand / dev builds only
+*) die "unsupported --flake (use git+https://…?rev=<sha> or a local path): $FLAKE" ;;
 esac
 printf '%s' "$ATTR" | grep -qE '^[A-Za-z0-9._-]+$' || die "invalid --attr: $ATTR"
 case "$KIND" in
-  container) : ;;
-  vm) die "--kind vm is not implemented in this slice" ;;
-  *) die "invalid --kind: $KIND" ;;
+container) : ;;
+vm) die "--kind vm is not implemented in this slice" ;;
+*) die "invalid --kind: $KIND" ;;
 esac
 
-NIX_COMMON=( --no-link --print-out-paths -L \
-  --extra-experimental-features "nix-command flakes" )
+NIX_COMMON=(--no-link --print-out-paths -L
+    --no-write-lock-file --no-update-lock-file
+    --extra-experimental-features "nix-command flakes")
 
 # Build one config.system.build.<sub> output and echo the single tarball inside it.
 build_one() {
-  local sub="$1"
-  local installable outpath tarball
-  installable="${FLAKE}#nixosConfigurations.${ATTR}.config.system.build.${sub}"
-  outpath="$(nix build "${NIX_COMMON[@]}" "$installable" | tail -n1)"
-  [ -n "$outpath" ] || die "nix build produced no output path for ${sub}"
-  # Each build output is a directory holding exactly one tarball under tarball/.
-  tarball="$(find "$outpath/tarball" -maxdepth 1 -name '*.tar.xz' -print -quit 2>/dev/null || true)"
-  [ -n "$tarball" ] || die "no *.tar.xz under $outpath/tarball for ${sub}"
-  printf '%s' "$tarball"
+    local sub="$1"
+    local installable outpath tarball
+    installable="${FLAKE}#nixosConfigurations.${ATTR}.config.system.build.${sub}"
+    outpath="$(nix build "${NIX_COMMON[@]}" "$installable" | tail -n1)"
+    [ -n "$outpath" ] || die "nix build produced no output path for ${sub}"
+    # Each build output is a directory holding exactly one tarball under tarball/.
+    tarball="$(find "$outpath/tarball" -maxdepth 1 -name '*.tar.xz' -print -quit 2>/dev/null || true)"
+    [ -n "$tarball" ] || die "no *.tar.xz under $outpath/tarball for ${sub}"
+    printf '%s' "$tarball"
 }
 
 META="$(build_one metadata)"
@@ -81,11 +98,11 @@ ROOTFS="$(build_one tarball)"
 # Optionally stage stable copies the caller controls (otherwise the store paths
 # are returned directly — they are world-readable and importImage reads them fine).
 if [ -n "$OUT" ]; then
-  mkdir -p "$OUT"
-  cp -f "$META"   "$OUT/metadata.tar.xz"
-  cp -f "$ROOTFS" "$OUT/rootfs.tar.xz"
-  META="$OUT/metadata.tar.xz"
-  ROOTFS="$OUT/rootfs.tar.xz"
+    mkdir -p "$OUT"
+    cp -f "$META" "$OUT/metadata.tar.xz"
+    cp -f "$ROOTFS" "$OUT/rootfs.tar.xz"
+    META="$OUT/metadata.tar.xz"
+    ROOTFS="$OUT/rootfs.tar.xz"
 fi
 
 printf '{"metadata":"%s","rootfs":"%s"}\n' "$META" "$ROOTFS"
