@@ -124,6 +124,10 @@ class IngressSettings extends Page implements HasActions, HasSchemas, HasTable
                             ->numeric()
                             ->required()
                             ->helperText(__('ingress.form.app_port_help')),
+
+                        Toggle::make('lan_unlocked')
+                            ->label(__('ingress.form.lan_unlocked'))
+                            ->helperText(__('ingress.form.lan_unlocked_help')),
                     ]),
 
                 Section::make(__('ingress.section.managed'))

@@ -30,6 +30,8 @@ return [
         'zone_help' => 'Apps are reachable at <app>.<zone>. Internal-only by design.',
         'app_port' => 'App port',
         'app_port_help' => 'The port every app listens on inside its container.',
+        'lan_unlocked' => 'Allow LAN reachability',
+        'lan_unlocked_help' => 'Off by default: deployed apps are reachable only through kixctl\'s own DNS and edge. Turn on to surface the CoreDNS address and instructions for pointing your own resolver at it — kixctl never changes your resolver, and this alone does not expose anything; you still add the forwarder yourself.',
         'dns_instance' => 'Resolver instance name',
         'dns_target' => 'Cluster member',
         'dns_target_help' => 'Where the resolver runs. Defaults to where your apps land, so Caddy reaches it the same way.',

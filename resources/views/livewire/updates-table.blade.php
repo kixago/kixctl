@@ -29,6 +29,9 @@
                     </div>
                 @endforeach
             </div>
+            <div style="margin-top:.5rem; font-size:.78rem;">
+                <a href="{{ $hint['docs_url'] }}" target="_blank" rel="noopener" style="color:#93c5fd; text-decoration:underline;">{{ __('updates.reachability.docs') }}</a>
+            </div>
         </div>
     @endif
 

@@ -20,6 +20,7 @@ return [
         'resolver' => 'CoreDNS address',
         'copy' => 'copy',
         'copied' => 'copied',
+        'docs' => 'How to route DNS so these resolve on your network →',
     ],
 
     'empty' => [

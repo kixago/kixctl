@@ -221,6 +221,16 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
      */
     public function resolverHint(): ?array
     {
+        $settings = IngressSetting::current();
+
+        // Internal-by-default (D26): a deliberately-internal app gets no routing
+        // instructions. The hint appears only once the operator has unlocked LAN
+        // reachability in Ingress settings — and even then it only tells them
+        // where to point their resolver; kixctl never touches it.
+        if (! $settings->lan_unlocked) {
+            return null;
+        }
+
         try {
             $status = app(IngressManager::class)->status();
         } catch (\Throwable) {
@@ -233,8 +243,9 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
         }
 
         return [
-            'zone' => trim(IngressSetting::current()->zone, '.'),
+            'zone' => trim($settings->zone, '.'),
             'coredns_ip' => $ip,
+            'docs_url' => (string) config('ingress.docs.lan_reachability', 'https://kixctl.com/docs/lan-reachability'),
         ];
     }
 

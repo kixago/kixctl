@@ -37,6 +37,18 @@ return [
     // Port every app listens on inside its container (the deploy base contract).
     'app_port' => (int) env('INGRESS_APP_PORT', 8080),
 
+    // LAN-reachability posture (D26). false = internal-by-default: an app is
+    // reachable only through kixctl's own CoreDNS + edge, and the Updates tab
+    // shows no routing hint. true = surface the CoreDNS address, the zone, and a
+    // docs link so the operator can point their own resolver at it. kixctl never
+    // edits the operator's resolver either way; this only governs what it shows.
+    'lan_unlocked' => (bool) env('INGRESS_LAN_UNLOCKED', false),
+
+    // Where the "how to route DNS" link in the reachability hint points.
+    'docs' => [
+        'lan_reachability' => env('INGRESS_DOCS_LAN_URL', 'https://kixctl.com/docs/lan-reachability'),
+    ],
+
     'managed' => [
         // The CoreDNS instance kixctl provisions and owns.
         'instance' => env('INGRESS_DNS_INSTANCE', 'kixctl-coredns'),

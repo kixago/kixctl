@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Model;
 class IngressSetting extends Model
 {
     protected $fillable = [
-        'provider', 'zone', 'app_port',
+        'provider', 'zone', 'app_port', 'lan_unlocked',
         'dns_instance', 'dns_target', 'dns_network', 'dns_refresh', 'record_ttl',
         'byo_endpoint', 'byo_token',
     ];
@@ -24,6 +24,7 @@ class IngressSetting extends Model
     {
         return [
             'app_port' => 'integer',
+            'lan_unlocked' => 'boolean',
             'record_ttl' => 'integer',
             'byo_token' => 'encrypted', // AES-256 via APP_KEY, transparent on read
         ];
@@ -52,6 +53,7 @@ class IngressSetting extends Model
             'provider' => (string) config('ingress.provider', 'managed'),
             'zone' => (string) config('ingress.zone', 'apps.internal'),
             'app_port' => (int) config('ingress.app_port', 8080),
+            'lan_unlocked' => (bool) config('ingress.lan_unlocked', false),
             'dns_instance' => (string) ($m['instance'] ?? 'kixctl-coredns'),
             'dns_target' => (string) ($m['target'] ?? 'powerhouse'),
             'dns_network' => ($m['network'] ?? '') !== '' ? (string) $m['network'] : null,
