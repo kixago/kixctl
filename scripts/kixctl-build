@@ -59,14 +59,14 @@ done
 # ── Validate inputs: the program refuses anything it wasn't designed to run ───
 [ -n "$FLAKE" ] || die "--flake is required"
 case "$FLAKE" in
-git+http://* | git+https://*)
+git+http://* | git+https://* | git+ssh://*)
     # A control-plane build must be pinned to an exact commit — reproducible,
     # and no "whatever main is right now" ambiguity.
     printf '%s' "$FLAKE" | grep -qE '\?rev=[0-9a-f]{7,40}' ||
         die "git flakeref must be pinned with ?rev=<sha>: $FLAKE"
     ;;
 path:* | /* | ./* | .) : ;; # local flake — by-hand / dev builds only
-*) die "unsupported --flake (use git+https://…?rev=<sha> or a local path): $FLAKE" ;;
+*) die "unsupported --flake (use git+ssh://…, git+https://…?rev=<sha>, or a local path): $FLAKE" ;;
 esac
 printf '%s' "$ATTR" | grep -qE '^[A-Za-z0-9._-]+$' || die "invalid --attr: $ATTR"
 case "$KIND" in
