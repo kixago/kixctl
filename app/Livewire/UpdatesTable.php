@@ -237,7 +237,10 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
             return null;
         }
 
-        $ip = trim((string) ($status['resolver_ip'] ?? ''));
+        // Both managed providers nest the resolver address under `detail`
+        // (edge and dns alike); the manual provider has no resolver here, so it
+        // correctly yields nothing and the hint stays hidden.
+        $ip = trim((string) ($status['detail']['resolver_ip'] ?? ''));
         if ($ip === '') {
             return null;
         }
