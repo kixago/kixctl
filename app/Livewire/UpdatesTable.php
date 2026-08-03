@@ -4,7 +4,9 @@ namespace App\Livewire;
 
 use App\Jobs\RunDeploymentAction;
 use App\Models\AppRoute;
+use App\Models\IngressSetting;
 use App\Services\Deploy\DeploymentManager;
+use App\Services\Ingress\IngressManager;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -202,8 +204,45 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
         //
     }
 
+    /**
+     * The LAN-reachability signpost (decisions.md D26). A deployed app resolves
+     * only through kixctl's OWN CoreDNS until the operator points their resolver
+     * at it — so a first deploy is reachable by the control plane yet "resolves
+     * to nothing" from a browser on the LAN. This surfaces the two facts needed
+     * to close that gap: the zone kixctl is authoritative for, and the resolver's
+     * current address. kixctl never touches the operator's resolver (D16); it
+     * only shows them where to point a conditional forwarder.
+     *
+     * Returns null — and the blade renders nothing — when the resolver has no
+     * address yet or the cluster is unreachable, so a transient outage turns the
+     * hint off rather than blanking or erroring the tab.
+     *
+     * @return array{zone:string, coredns_ip:string}|null
+     */
+    public function resolverHint(): ?array
+    {
+        try {
+            $status = app(IngressManager::class)->status();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $ip = trim((string) ($status['resolver_ip'] ?? ''));
+        if ($ip === '') {
+            return null;
+        }
+
+        return [
+            'zone' => trim(IngressSetting::current()->zone, '.'),
+            'coredns_ip' => $ip,
+        ];
+    }
+
     public function render()
     {
-        return view('livewire.updates-table', ['apps' => $this->apps()]);
+        return view('livewire.updates-table', [
+            'apps' => $this->apps(),
+            'hint' => $this->resolverHint(),
+        ]);
     }
 }

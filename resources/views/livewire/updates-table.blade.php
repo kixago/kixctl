@@ -6,6 +6,32 @@
     </div>
     <p style="opacity:.7; font-size:.85rem; margin-bottom:1rem;">{{ __('updates.intro') }}</p>
 
+    {{-- LAN-reachability signpost (D26). Shown only when kixctl's resolver has an
+         address; hidden (never errored) when the cluster is unreachable. Surfaces
+         the zone + CoreDNS address so a first deploy that "resolves to nothing"
+         from the LAN reads as a next step, not a dead end. kixctl never writes to
+         the operator's resolver — this only tells them where to point it. --}}
+    @if ($hint)
+        <div x-data="{ copied: '' }" style="margin-bottom:1.1rem; padding:.7rem .85rem; border-radius:.5rem; background:rgba(59,130,246,.08); border:1px solid rgba(59,130,246,.2);">
+            <div style="font-weight:600; font-size:.82rem; margin-bottom:.3rem;">{{ __('updates.reachability.heading') }}</div>
+            <p style="opacity:.8; font-size:.8rem; margin:0 0 .55rem;">{{ __('updates.reachability.body') }}</p>
+            <div style="display:flex; flex-wrap:wrap; gap:.5rem;">
+                @foreach ([['label' => __('updates.reachability.zone'), 'value' => $hint['zone']], ['label' => __('updates.reachability.resolver'), 'value' => $hint['coredns_ip']]] as $pair)
+                    <div style="display:flex; align-items:center; gap:.45rem; background:rgba(255,255,255,.05); padding:.3rem .55rem; border-radius:.4rem;">
+                        <span style="opacity:.55; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;">{{ $pair['label'] }}</span>
+                        <span style="font-family:ui-monospace,monospace; font-size:.82rem; color:#93c5fd;">{{ $pair['value'] }}</span>
+                        <button type="button"
+                            @click="navigator.clipboard.writeText(@js($pair['value'])); copied=@js($pair['value']); setTimeout(() => copied='', 1200)"
+                            style="opacity:.7; font-size:.7rem; text-decoration:underline; cursor:pointer;">
+                            <span x-show="copied !== @js($pair['value'])">{{ __('updates.reachability.copy') }}</span>
+                            <span x-show="copied === @js($pair['value'])" x-cloak style="color:#22c55e;">{{ __('updates.reachability.copied') }}</span>
+                        </button>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
+
     {{-- Live deploy watcher. A push-triggered build (DeployFromPush) broadcasts on
          the public `deploys` channel; this tab did NOT initiate it, so it subscribes
          unconditionally and shows an in-flight spinner per revision, then a terminal

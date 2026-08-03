@@ -11,6 +11,17 @@ return [
     'reaped' => 'Old revisions removed',
     'reap_failed' => 'Could not remove the revisions',
 
+    // The LAN-reachability signpost (D26): a deployed app resolves only through
+    // kixctl's own CoreDNS until the operator points their resolver at it.
+    'reachability' => [
+        'heading' => 'Reaching these apps from your network',
+        'body' => 'These names resolve only through kixctl\'s own DNS until you point your resolver at it. In your resolver (Technitium, Unbound, Pi-hole, and the like), add a conditional forwarder for the zone below to the CoreDNS address below. kixctl never changes your resolver — this part is yours.',
+        'zone' => 'Zone',
+        'resolver' => 'CoreDNS address',
+        'copy' => 'copy',
+        'copied' => 'copied',
+    ],
+
     'empty' => [
         'heading' => 'No deployed apps yet',
         'description' => 'Push to a connected repository and its first revision goes live here.',
