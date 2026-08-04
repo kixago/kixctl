@@ -1,0 +1,62 @@
+<?php
+
+return [
+
+    'table' => [
+        'heading' => 'Repositories',
+        'description' => 'The git repositories kixctl watches and deploys. Add a repository and a push (over a webhook) or a scheduled poll builds and lands its latest commit.',
+        'repository' => 'Repository',
+        'host' => 'Host',
+        'branch' => 'Branch',
+        'branch_head' => 'default',
+        'build_attr' => 'Build',
+        'poll' => 'Poll',
+        'poll_inactive_tip' => 'Polling is on, but the repository is inactive, so it will not be polled.',
+        'webhook' => 'Webhook',
+        'active' => 'Active',
+        'last_poll' => 'Last poll',
+        'never' => 'never',
+        'poll_error' => 'poll failed',
+    ],
+
+    'form' => [
+        'full_name' => 'Repository',
+        'full_name_help' => 'The owner and name as the host reports it, for example kixago/demo-app.',
+        'full_name_placeholder' => 'kixago/demo-app',
+        'clone_url' => 'Clone URL',
+        'clone_url_help' => 'The URL kixctl fetches from. An SSH URL (ssh://git@host:port/owner/repo.git) authenticates through the access this host already has, so a private repository needs nothing stored here. A public HTTPS URL also works.',
+        'clone_url_placeholder' => 'ssh://git@git.lan.kixago.com:2222/kixago/demo-app.git',
+        'slug' => 'Name',
+        'slug_placeholder' => 'derived from the repository name',
+        'slug_help' => 'The stable name used for this app’s address and its per-revision instances. Leave blank to derive it from the repository name.',
+        'branch' => 'Branch',
+        'branch_placeholder' => 'the repository’s default branch',
+        'branch_help' => 'The branch to deploy. Leave blank to track the repository’s default branch.',
+        'build_attr' => 'Build attribute',
+        'build_attr_help' => 'The flake attribute the builder targets for this repository. Leave blank to use the install default.',
+        'webhook_secret' => 'Webhook secret',
+        'webhook_secret_help' => 'The shared secret set on this repository’s webhook. Leave blank to deploy by scheduled poll only, with no webhook.',
+        'poll_enabled' => 'Poll for new commits',
+        'poll_enabled_help' => 'Check the repository on a schedule and deploy a new commit even without a webhook.',
+        'poll_interval' => 'Poll interval (seconds)',
+        'poll_interval_help' => 'The minimum time between polls for this repository.',
+        'is_active' => 'Active',
+        'is_active_help' => 'When off, kixctl neither polls this repository nor accepts its webhook. Its registration and configuration are kept.',
+    ],
+
+    'crud' => [
+        'add' => 'Add repository',
+        'added' => 'Repository added.',
+        'add_failed' => 'The repository could not be added.',
+        'edit' => 'Edit',
+        'updated' => 'Repository updated.',
+        'update_failed' => 'The repository could not be updated.',
+        'delete' => 'Remove',
+        'delete_confirm' => 'This removes the registration and its configuration. Any running revisions and routes belong to the cluster and are left in place. Are you absolutely sure?',
+        'deleted' => 'Repository removed.',
+        'deploy' => 'Deploy now',
+        'deploy_confirm' => 'kixctl will check :repo for its latest commit and deploy it if it is not already running. Are you sure?',
+        'deploy_queued' => 'Checking :repo and deploying its latest commit.',
+    ],
+
+];

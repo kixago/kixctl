@@ -41,6 +41,10 @@ class ShieldPresetSeeder extends Seeder
             'profile.detach',
             'profile.update',
             'instance.config.update',
+            'repository.create',
+            'repository.update',
+            'repository.delete',
+            'repository.deploy',
         ];
 
         foreach ($permissions as $name) {
@@ -66,6 +70,9 @@ class ShieldPresetSeeder extends Seeder
             'profile.attach',
             'profile.detach',
             'instance.config.update',
+            'repository.create',
+            'repository.update',
+            'repository.deploy',
         ]);
 
         $viewer = Role::firstOrCreate(['name' => 'viewer', 'guard_name' => $guard]);

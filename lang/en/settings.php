@@ -9,6 +9,7 @@ return [
         'profiles' => 'Profiles',
         'ingress' => 'Ingress',
         'records' => 'Records',
+        'repositories' => 'Repositories',
         'updates' => 'Updates',
         'storage' => 'Storage',
         'soon' => 'soon',
