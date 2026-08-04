@@ -15,6 +15,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
@@ -106,6 +107,7 @@ class PoolsTable extends Component implements HasActions, HasSchemas, HasTable
                     ->requiresConfirmation()
                     ->modalHeading(fn (Pool $record) => __('pools.crud.delete_heading', ['pool' => $record->label]))
                     ->modalDescription(fn (Pool $record) => $this->deleteDescription($record))
+                    ->modalContent(fn (Pool $record) => $this->deleteMemberList($record))
                     ->action(function (Pool $record): void {
                         // nullOnDelete un-pools any members automatically; the apps are
                         // the cluster's and are left in place, still promoting — just
@@ -135,22 +137,37 @@ class PoolsTable extends Component implements HasActions, HasSchemas, HasTable
     }
 
     /**
-     * The delete confirmation body: with members attached it names them and makes
-     * clear they are returned to promoting individually rather than deleted; empty,
-     * it is a plain irreversible-action notice.
+     * The delete confirmation sentence: the consequence and the member count. The
+     * app names themselves are rendered separately, as a scrollable list, so the
+     * sentence stays short no matter how many apps are attached. Empty, it is a
+     * plain irreversible-action notice.
      */
     private function deleteDescription(Pool $record): string
     {
-        $members = $record->repositories()->orderBy('full_name')->pluck('full_name');
+        $count = $record->repositories()->count();
 
-        if ($members->isEmpty()) {
+        if ($count === 0) {
             return __('pools.crud.delete_empty');
         }
 
-        return trans_choice('pools.crud.delete_members', $members->count(), [
-            'count' => $members->count(),
-            'apps' => $members->implode(', '),
-        ]);
+        return trans_choice('pools.crud.delete_members', $count, ['count' => $count]);
+    }
+
+    /**
+     * The attached apps as a height-capped, scrollable list in the delete modal
+     * body, so a pool with three members and one with three hundred both read
+     * cleanly — the box grows to its cap, then scrolls, rather than the warning
+     * becoming a wall of names. An empty pool adds no content block (null).
+     */
+    private function deleteMemberList(Pool $record): ?View
+    {
+        $apps = $record->repositories()->orderBy('full_name')->pluck('full_name');
+
+        if ($apps->isEmpty()) {
+            return null;
+        }
+
+        return view('livewire.pools.delete-members', ['apps' => $apps]);
     }
 
     /**

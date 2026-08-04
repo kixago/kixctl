@@ -26,7 +26,7 @@ return [
         'delete' => 'Remove',
         'delete_heading' => 'Remove pool “:pool”?',
         'delete_empty' => 'This removes the pool. It cannot be undone.',
-        'delete_members' => '{1} This pool still has one app attached: :apps. Removing the pool returns that app to promoting individually — the app itself is not deleted. Cancel to move it first, or confirm to remove the pool.|[2,*] This pool still has :count apps attached: :apps. Removing the pool returns those apps to promoting individually — the apps themselves are not deleted. Cancel to move them first, or confirm to remove the pool.',
+        'delete_members' => '{1} This pool still has one app attached. Removing the pool returns that app to promoting individually — the app itself is not deleted. Cancel to move it first, or confirm to remove the pool.|[2,*] This pool still has :count apps attached. Removing the pool returns those apps to promoting individually — the apps themselves are not deleted. Cancel to move them first, or confirm to remove the pool.',
         'deleted' => 'Pool removed.',
     ],
 
