@@ -2,10 +2,12 @@
 
 namespace App\Livewire;
 
+use App\Models\Pool;
 use App\Models\Repository;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -60,6 +62,11 @@ class RepositoriesTable extends Component implements HasActions, HasSchemas, Has
                 TextColumn::make('build_attr')
                     ->label(__('repositories.table.build_attr'))
                     ->state(fn (Repository $record) => $record->buildAttr())
+                    ->badge()
+                    ->color('gray'),
+                TextColumn::make('pool.label')
+                    ->label(__('repositories.table.pool'))
+                    ->placeholder('—')
                     ->badge()
                     ->color('gray'),
                 IconColumn::make('poll_effective')
@@ -138,6 +145,7 @@ class RepositoriesTable extends Component implements HasActions, HasSchemas, Has
                         'clone_url' => $record->clone_url,
                         'default_branch' => $record->default_branch,
                         'build_attr' => $record->build_attr,
+                        'pool_id' => $record->pool_id,
                         'webhook_secret' => $record->webhook_secret,
                         'poll_enabled' => (bool) $record->poll_enabled,
                         'poll_interval' => (int) $record->poll_interval,
@@ -204,6 +212,19 @@ class RepositoriesTable extends Component implements HasActions, HasSchemas, Has
                 ->label(__('repositories.form.build_attr'))
                 ->placeholder((string) config('deploy.build.attr', 'default'))
                 ->helperText(__('repositories.form.build_attr_help')),
+            Select::make('pool_id')
+                ->label(__('repositories.form.pool'))
+                ->options(fn () => Pool::query()->orderBy('label')->pluck('label', 'id')->all())
+                ->placeholder(__('repositories.form.pool_placeholder'))
+                ->helperText(__('repositories.form.pool_help'))
+                ->createOptionForm([
+                    TextInput::make('label')
+                        ->label(__('repositories.form.pool_label'))
+                        ->required()
+                        ->placeholder(__('repositories.form.pool_label_placeholder')),
+                ])
+                ->createOptionModalHeading(__('repositories.form.pool_create_heading'))
+                ->createOptionUsing(fn (array $data) => Pool::create($data)->getKey()),
             TextInput::make('webhook_secret')
                 ->label(__('repositories.form.webhook_secret'))
                 ->password()
@@ -246,6 +267,12 @@ class RepositoriesTable extends Component implements HasActions, HasSchemas, Has
         // A blank slug is fine — the model derives it on save.
         if (array_key_exists('poll_interval', $data)) {
             $data['poll_interval'] = max(10, (int) $data['poll_interval']);
+        }
+
+        // No pool chosen (the placeholder) un-pools the app so it promotes on its
+        // own. Pool ids start at 1, so an empty, zero, or missing value is "None".
+        if (array_key_exists('pool_id', $data)) {
+            $data['pool_id'] = ((int) $data['pool_id']) ?: null;
         }
 
         return $data;
