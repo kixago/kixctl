@@ -10,6 +10,7 @@ return [
         'ingress' => 'Ingress',
         'records' => 'Records',
         'repositories' => 'Repositories',
+        'pools' => 'Pools',
         'updates' => 'Updates',
         'storage' => 'Storage',
         'soon' => 'soon',
