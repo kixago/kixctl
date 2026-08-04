@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -22,4 +23,15 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
+    })
+    ->withSchedule(function (Schedule $schedule): void {
+        // P3-6: the host-agnostic commit poller — the app's first scheduled task.
+        // It ticks every minute; each repository is only actually polled once its
+        // own interval has elapsed. withoutOverlapping (backed by the Valkey cache
+        // lock) stops a slow run from stacking on the next tick, and it runs in the
+        // background so a poll never delays the scheduler.
+        $schedule->command('kixctl:poll-repositories')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground();
     })->create();

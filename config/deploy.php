@@ -51,6 +51,25 @@ return [
         'profile' => env('DEPLOY_LAUNCH_PROFILE', 'kix'),
     ],
 
+    'poll' => [
+        // The host-agnostic commit poller (P3-6, decision D27). Every active,
+        // poll-enabled repository is checked with `git ls-remote` on a schedule;
+        // a commit that isn't already a running revision is deployed. This is the
+        // baseline that makes GitHub/Codeberg/Forgejo work with zero webhook
+        // plumbing — webhooks stay the low-latency optimization on top.
+        'enabled' => (bool) env('DEPLOY_POLL_ENABLED', true),
+
+        // Non-interactive git environment for the ls-remote read. BatchMode makes
+        // a missing or blocked SSH key fail fast with a clear error instead of
+        // hanging on a prompt; keep it strict so an unknown host key is a visible
+        // failure, not a silent auto-trust (rely on the host's known_hosts, which
+        // an SSH-first operator already has for repos they push to).
+        'ssh_command' => env('DEPLOY_POLL_SSH_COMMAND', 'ssh -o BatchMode=yes -o ConnectTimeout=10'),
+
+        // Hard cap on a single ls-remote call, in seconds.
+        'timeout' => (int) env('DEPLOY_POLL_TIMEOUT', 30),
+    ],
+
     'reap' => [
         // How long a superseded (cut-over-away) revision is kept before it
         // becomes eligible for reaping. Within this window a revert is a one-click
