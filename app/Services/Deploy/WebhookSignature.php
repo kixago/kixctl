@@ -27,4 +27,25 @@ final class WebhookSignature
 
         return hash_equals($expected, $headerSignature);
     }
+
+    /**
+     * GitHub variant: the same HMAC-SHA256 of the raw body, but sent prefixed in
+     * the X-Hub-Signature-256 header as "sha256=<hex>". Verified against GitHub's
+     * documented scheme; the prefix is stripped before the constant-time compare.
+     */
+    public static function validGithub(string $rawBody, ?string $headerSignature, string $secret): bool
+    {
+        if ($headerSignature === null || $secret === '' || ! str_starts_with($headerSignature, 'sha256=')) {
+            return false;
+        }
+
+        $provided = substr($headerSignature, strlen('sha256='));
+        if ($provided === '') {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $rawBody, $secret);
+
+        return hash_equals($expected, $provided);
+    }
 }
