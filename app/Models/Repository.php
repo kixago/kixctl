@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 /**
@@ -28,6 +29,7 @@ class Repository extends Model
         'full_name', 'slug', 'host', 'clone_url', 'default_branch',
         'build_attr', 'webhook_secret', 'poll_enabled', 'poll_interval',
         'last_seen_sha', 'last_polled_at', 'last_poll_error', 'is_active',
+        'pool_id',
     ];
 
     protected function casts(): array
@@ -56,6 +58,12 @@ class Repository extends Model
                 $repo->host = self::deriveHost($repo->clone_url);
             }
         });
+    }
+
+    /** The pool this repo promotes with, or null when it promotes individually. */
+    public function pool(): BelongsTo
+    {
+        return $this->belongsTo(Pool::class);
     }
 
     /** The app's stable name from "owner/repo": the repo leaf, slugified. */
