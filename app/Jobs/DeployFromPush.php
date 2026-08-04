@@ -55,6 +55,8 @@ class DeployFromPush implements ShouldQueue
         public string $cloneUrl,
         public string $branch,
         public string $commit,
+        public string $buildAttr = '',
+        public string $slug = '',
     ) {
         $this->onQueue('incus');
     }
@@ -68,7 +70,11 @@ class DeployFromPush implements ShouldQueue
         // Pin the build to the exact pushed commit: git+<clone url>?rev=<sha>.
         // Nix fetches the repo at that revision hermetically — no local clone.
         $flakeRef = 'git+'.$this->cloneUrl.'?rev='.$this->commit;
-        $attr = (string) config('deploy.build.attr', 'default');
+
+        // Per-repo build attribute (P3-6). The single global DEPLOY_BUILD_ATTR is
+        // retired: the repository row carries its own attr, and the install
+        // default only applies when that row leaves it blank.
+        $attr = $this->buildAttr !== '' ? $this->buildAttr : (string) config('deploy.build.attr', 'default');
 
         $result = Process::timeout($this->timeout)->run([
             base_path('scripts/kixctl-build'),
@@ -304,6 +310,14 @@ class DeployFromPush implements ShouldQueue
      */
     private function appKey(): string
     {
+        // The repo's registered slug is the stable app name — the DNS host
+        // (<slug>.<zone>) and the per-revision instance namespace (<slug>-<sha7>).
+        // Unique per repo, so two repos sharing a leaf can't collide. Deriving
+        // from the repo path is only a fallback for a dispatch with no slug.
+        if ($this->slug !== '') {
+            return $this->slug;
+        }
+
         $leaf = (string) str($this->repository)->afterLast('/')->slug();
 
         return $leaf !== '' ? $leaf : 'app';
