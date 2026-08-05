@@ -242,6 +242,7 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
     {
         return Action::make('updateAll')
             ->label(__('pools.updates.update_all'))
+            ->visible(fn () => Auth::user()?->can('pool.promote') ?? false)
             ->icon(Heroicon::OutlinedRocketLaunch)
             ->requiresConfirmation()
             ->modalHeading(__('pools.updates.update_all_heading'))

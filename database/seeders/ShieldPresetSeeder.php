@@ -48,6 +48,7 @@ class ShieldPresetSeeder extends Seeder
             'pool.create',
             'pool.update',
             'pool.delete',
+            'pool.promote',
         ];
 
         foreach ($permissions as $name) {
@@ -78,6 +79,7 @@ class ShieldPresetSeeder extends Seeder
             'repository.deploy',
             'pool.create',
             'pool.update',
+            'pool.promote',
         ]);
 
         $viewer = Role::firstOrCreate(['name' => 'viewer', 'guard_name' => $guard]);
