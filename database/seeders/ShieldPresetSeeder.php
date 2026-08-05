@@ -49,6 +49,10 @@ class ShieldPresetSeeder extends Seeder
             'pool.update',
             'pool.delete',
             'pool.promote',
+            // Admin-only: granted to no role by default. super_admin reaches user
+            // administration via the Shield gate bypass; grant this to a trusted
+            // role later to delegate user management without code changes.
+            'user.manage',
         ];
 
         foreach ($permissions as $name) {
