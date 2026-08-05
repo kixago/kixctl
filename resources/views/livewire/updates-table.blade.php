@@ -66,6 +66,43 @@
         <style>@keyframes dwspin { to { transform: rotate(360deg); } } [x-cloak]{display:none!important;}</style>
     </div>
 
+    {{-- Pools ready to promote (P3-7). A pool with any member holding a landed,
+         unpromoted revision surfaces here with one Update all that promotes the whole
+         batch through the proven per-app cutover (RunPoolUpdate). Members flip live on
+         the `deploys` rail as the job runs, so this section shrinks and disappears on
+         its own. Apps not in a pool are untouched and still promote individually in
+         their own cards below. --}}
+    @if (! empty($pools))
+        <div style="margin-bottom:1.3rem;">
+            <h4 style="font-weight:600; font-size:.9rem; margin-bottom:.15rem;">{{ __('pools.updates.heading') }}</h4>
+            <p style="opacity:.7; font-size:.82rem; margin-bottom:.7rem;">{{ __('pools.updates.intro') }}</p>
+
+            @foreach ($pools as $pool)
+                <div style="border:1px solid rgba(245,158,11,.28); border-radius:.6rem; padding:.85rem 1rem; margin-bottom:.75rem; background:rgba(245,158,11,.06);">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem;">
+                        <div style="min-width:0;">
+                            <div style="display:flex; align-items:center; gap:.5rem;">
+                                <span style="background:rgba(255,255,255,.06); padding:.2rem .55rem; border-radius:.4rem; font-weight:600; font-size:.85rem;">{{ $pool['label'] }}</span>
+                                <span style="font-size:.78rem; color:#fbbf24;">{{ trans_choice('pools.updates.ready_count', count($pool['ready']), ['count' => count($pool['ready'])]) }}</span>
+                            </div>
+                            <div style="display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.55rem;">
+                                @foreach ($pool['ready'] as $member)
+                                    <span style="display:inline-flex; align-items:center; gap:.35rem; background:rgba(255,255,255,.04); padding:.2rem .5rem; border-radius:.35rem; font-size:.78rem;">
+                                        <span style="font-weight:600;">{{ $member['app'] }}</span>
+                                        <span style="font-family:ui-monospace,monospace; color:#93c5fd;">{{ $member['sha'] }}</span>
+                                    </span>
+                                @endforeach
+                            </div>
+                        </div>
+                        <div style="flex-shrink:0;">
+                            {{ ($this->updateAllAction)(['poolId' => $pool['id'], 'pool' => $pool['label'], 'count' => count($pool['ready'])]) }}
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    @endif
+
     @if (empty($apps))
         <div style="border:1px dashed rgba(255,255,255,.12); border-radius:.6rem; padding:1.5rem; text-align:center;">
             <p style="font-weight:600; margin-bottom:.35rem;">{{ __('updates.empty.heading') }}</p>

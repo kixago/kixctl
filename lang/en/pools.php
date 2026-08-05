@@ -44,4 +44,16 @@ return [
         'summary_failed' => 'Failed — :list.',
     ],
 
+    // The Updates tab surface (P3-7): pools with a member ready to promote, and the
+    // one Update all that promotes the whole batch.
+    'updates' => [
+        'heading' => 'Pools ready to promote',
+        'intro' => 'These pools have apps with a newer revision waiting. Update all promotes every ready app in the pool at once; apps already current are skipped.',
+        'ready_count' => '{1} :count app ready|[2,*] :count apps ready',
+        'update_all' => 'Update all',
+        'update_all_heading' => 'Promote every ready app in this pool?',
+        'update_all_confirm' => '{1} This promotes :count app in “:pool” to its newest revision. The previous revision is kept so you can revert, and any app already current is skipped.|[2,*] This promotes :count apps in “:pool” to their newest revisions. Each previous revision is kept so you can revert, and any app already current is skipped.',
+        'queued' => 'Update all queued for “:pool”. Apps will promote and report as they go.',
+    ],
+
 ];

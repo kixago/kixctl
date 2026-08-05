@@ -3,8 +3,10 @@
 namespace App\Livewire;
 
 use App\Jobs\RunDeploymentAction;
+use App\Jobs\RunPoolUpdate;
 use App\Models\AppRoute;
 use App\Models\IngressSetting;
+use App\Models\Repository;
 use App\Services\Deploy\DeploymentManager;
 use App\Services\Ingress\IngressManager;
 use Filament\Actions\Action;
@@ -91,6 +93,69 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
         return $out;
     }
 
+    /**
+     * The pools that have at least one member ready to promote, derived from the
+     * apps() view model that was already built this render — so this adds ONE cheap
+     * slug->pool query and NOT a second pass over Incus. A member is "ready" exactly
+     * when its app card carries an update_ready revision; this groups those by pool.
+     * A pool with nothing ready simply doesn't appear, and as the queued Update-all
+     * promotes members they drop out of update_ready and the pool shrinks here on the
+     * next deploys-driven re-render, then vanishes.
+     *
+     * @param  list<array<string,mixed>>  $apps  the return of apps()
+     * @return list<array{id:int, label:string, name:string, ready:list<array{app:string, instance:string, sha:string}>}>
+     */
+    public function readyPools(array $apps): array
+    {
+        $readyByApp = [];
+        foreach ($apps as $app) {
+            if ($app['update_ready'] !== null) {
+                $readyByApp[$app['app']] = $app['update_ready'];
+            }
+        }
+
+        if ($readyByApp === []) {
+            return [];
+        }
+
+        // slug IS the app key, so one whereIn maps the ready apps to their pools.
+        $repos = Repository::query()
+            ->whereNotNull('pool_id')
+            ->whereIn('slug', array_keys($readyByApp))
+            ->with('pool')
+            ->get();
+
+        $grouped = [];
+        foreach ($repos as $repo) {
+            $pool = $repo->pool;
+            if (! $pool) {
+                continue;
+            }
+
+            $grouped[$pool->id] ??= [
+                'id' => $pool->id,
+                'label' => $pool->label,
+                'name' => $pool->name,
+                'ready' => [],
+            ];
+
+            $instance = $readyByApp[$repo->slug];
+            $grouped[$pool->id]['ready'][] = [
+                'app' => $repo->slug,
+                'instance' => $instance,
+                'sha' => (string) Str::of($instance)->afterLast('-'),
+            ];
+        }
+
+        $out = array_values($grouped);
+        usort($out, fn ($a, $b) => strcmp($a['label'], $b['label']));
+        foreach ($out as &$pool) {
+            usort($pool['ready'], fn ($a, $b) => strcmp($a['app'], $b['app']));
+        }
+
+        return $out;
+    }
+
     public function cutoverAction(): Action
     {
         return Action::make('cutover')
@@ -167,6 +232,52 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
                         ->send();
                 }
             });
+    }
+
+    /**
+     * Promote a whole pool: confirm, then queue RunPoolUpdate. The confirm names the
+     * count and pool; the count/pool come through the action arguments from the blade.
+     */
+    public function updateAllAction(): Action
+    {
+        return Action::make('updateAll')
+            ->label(__('pools.updates.update_all'))
+            ->icon(Heroicon::OutlinedRocketLaunch)
+            ->requiresConfirmation()
+            ->modalHeading(__('pools.updates.update_all_heading'))
+            ->modalDescription(fn (array $arguments): string => trans_choice(
+                'pools.updates.update_all_confirm',
+                (int) ($arguments['count'] ?? 0),
+                [
+                    'count' => (int) ($arguments['count'] ?? 0),
+                    'pool' => (string) ($arguments['pool'] ?? ''),
+                ],
+            ))
+            ->action(fn (array $arguments) => $this->dispatchPoolUpdate(
+                (int) ($arguments['poolId'] ?? 0),
+                (string) ($arguments['pool'] ?? ''),
+            ));
+    }
+
+    /**
+     * Queue the pooled promotion. Progress is deliberately NOT a token toast — a
+     * batch of cutovers is a series of per-card changes, not one operation — so
+     * RunPoolUpdate streams each member's result on the `deploys` channel the tab
+     * already watches (members flip live, this section re-derives as it shrinks) and
+     * broadcasts a closing tally. This handler only confirms the click registered.
+     */
+    private function dispatchPoolUpdate(int $poolId, string $poolLabel): void
+    {
+        if ($poolId <= 0) {
+            return;
+        }
+
+        RunPoolUpdate::dispatch(Auth::id(), $poolId);
+
+        Notification::make()
+            ->title(__('pools.updates.queued', ['pool' => $poolLabel]))
+            ->success()
+            ->send();
     }
 
     /** Fire a cutover/revert on the queue and flip the toast spinner on. */
@@ -254,8 +365,11 @@ class UpdatesTable extends Component implements HasActions, HasSchemas
 
     public function render()
     {
+        $apps = $this->apps();
+
         return view('livewire.updates-table', [
-            'apps' => $this->apps(),
+            'apps' => $apps,
+            'pools' => $this->readyPools($apps),
             'hint' => $this->resolverHint(),
         ]);
     }
