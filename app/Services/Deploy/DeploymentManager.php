@@ -80,6 +80,10 @@ class DeploymentManager
         $liveElsewhere = $live && $live !== $instance && $this->incus->instanceExists($cluster, $live);
 
         if ($liveElsewhere) {
+            // Landed, not promoted: it must NOT resurrect on a reboot ahead of
+            // the still-live revision, so pin autostart off until it's promoted.
+            $this->setAutostart($cluster, $instance, false);
+
             Log::info('deploy.landed_alongside', [
                 'app' => $app,
                 'instance' => $instance,
@@ -90,6 +94,9 @@ class DeploymentManager
         }
 
         $this->ingress->publish($app, $instance, $ip, $port);
+
+        // This revision is live now — pin it to come back on a reboot.
+        $this->setAutostart($cluster, $instance, true);
 
         Log::info('deploy.published_live', [
             'app' => $app,
@@ -198,14 +205,17 @@ class DeploymentManager
         // + owned edge). Cutover latency is bounded by the resolver refresh (5s).
         $this->ingress->publish($app, $instance, $ip, $port);
 
-        // The target is live now — clear any retirement mark it carried (revert).
+        // The target is live now — clear any retirement mark it carried (revert)
+        // and pin it to autostart so it survives a reboot.
         $this->setRetired($cluster, $instance, null);
+        $this->setAutostart($cluster, $instance, true);
 
         // Retire the outgoing revision: mark it, keep it intact for revert, and
         // (by default) stop it so a superseded revision stops consuming CPU/RAM.
         $stopped = false;
         if ($outgoing && $outgoing !== $instance && $this->incus->instanceExists($cluster, $outgoing)) {
             $this->setRetired($cluster, $outgoing, time());
+            $this->setAutostart($cluster, $outgoing, false);
 
             if ((bool) config('deploy.reap.stop_retired', true)) {
                 try {
@@ -361,6 +371,35 @@ class DeploymentManager
         $this->incus->updateInstance($cluster, $instance, [
             'config' => [self::RETIRED_KEY => $ts !== null ? (string) $ts : ''],
         ]);
+    }
+
+    /**
+     * Pin a revision's boot-time autostart. Exactly the live revision carries
+     * boot.autostart=true; every superseded one carries false, so a host reboot
+     * brings back only the live revision — never a stopped-then-manually-started
+     * old one, and never an un-promoted candidate. Written at each live-ness
+     * change (publish, land-alongside, cutover, revert). This ONLY ever touches
+     * <slug>-<sha7> revisions the lifecycle owns; a hand-created instance is never
+     * passed here, so its operator-set autostart is left alone.
+     *
+     * Best-effort: boot.autostart is a boot-time key (no live effect), it
+     * re-asserts on the next transition, and Incus's last-state restore is a
+     * safe fallback — so a transient PATCH failure logs rather than failing a
+     * deploy or a cutover whose route has already moved.
+     */
+    private function setAutostart(Cluster $cluster, string $instance, bool $on): void
+    {
+        try {
+            $this->incus->updateInstance($cluster, $instance, [
+                'config' => ['boot.autostart' => $on ? 'true' : 'false'],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('deploy.autostart_failed', [
+                'instance' => $instance,
+                'on' => $on,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function isRevision(string $app, string $name): bool

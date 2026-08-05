@@ -3,6 +3,8 @@
 namespace App\Filament\Pages;
 
 use App\Models\User;
+use App\Models\AppRoute;
+use App\Models\Repository;
 use App\Models\ProfileRestartFlag;
 use App\Services\Incus\ClusterRegistry;
 use App\Services\Incus\IncusClient;
@@ -84,6 +86,8 @@ class ClusterInstances extends Page
                     ->count(),
             ];
         })->values()->all();
+
+        $this->instances = $this->annotateRevisions($this->instances);
 
         $this->dispatch('instance-changed');
     }
@@ -221,6 +225,39 @@ class ClusterInstances extends Page
             'profile' => $flag->profile_name,
             'what' => implode(', ', $phrases),
         ]);
+    }
+
+    /**
+     * Tag each instance with its deploy-revision role so the view can group
+     * superseded revisions under their live one:
+     *   app     — the owning app slug when the name is <slug>-<sha7> for a
+     *             REGISTERED repo, else null (a hand-created instance never
+     *             matches, so it is never grouped or altered).
+     *   retired — the kixctl retirement marker is set. Only ever present on a
+     *             superseded revision, so this cannot catch a hand-made box.
+     *   is_live — this exact instance is the app's currently-routed revision.
+     * The live revision anchors the group; retired ones collapse beneath it;
+     * a landed-but-unpromoted revision is neither retired nor live, so it stays
+     * a normal top-level row.
+     */
+    protected function annotateRevisions(array $instances): array
+    {
+        $slugs = Repository::query()->pluck('slug')->all();
+        $live = AppRoute::query()->pluck('live_instance', 'app')->all();
+
+        return array_map(function (array $i) use ($slugs, $live) {
+            $name = (string) ($i['name'] ?? '');
+
+            $app = preg_match('/^(.+)-[0-9a-f]{7}$/', $name, $m) && in_array($m[1], $slugs, true)
+                ? $m[1]
+                : null;
+
+            $i['app'] = $app;
+            $i['retired'] = ! empty($i['retired_at']);
+            $i['is_live'] = $app !== null && ($live[$app] ?? null) === $name;
+
+            return $i;
+        }, $instances);
     }
 
     protected function cleanIncusError(\Throwable $e): string

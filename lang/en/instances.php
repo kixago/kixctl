@@ -11,6 +11,10 @@ return [
         'container_short' => 'CT',
         'vm_short' => 'VM',
     ],
+    'revisions' => [
+        'older' => 'older',
+        'older_tip' => 'Superseded revisions of this app — read-only here. Promote or revert from the Updates tab.',
+    ],
     'restart' => [
         'title' => 'Restart needed',
         'reason' => 'The :profile profile changed — :what. This instance is still running the previous definition; restart it when convenient to apply the change. Nothing changes until you do.',
