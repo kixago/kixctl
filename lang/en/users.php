@@ -30,4 +30,12 @@ return [
         'direct_permissions' => 'Direct permissions',
         'direct_permissions_help' => 'Extra permissions for this user beyond what their groups already allow.',
     ],
+
+    // Rail 2: the last-super_admin invariant messages.
+    'guard' => [
+        'last_super_admin_title' => 'Action blocked',
+        'last_super_admin_delete' => 'You can’t delete the last super administrator — at least one must always remain.',
+        'last_super_admin_bulk' => 'That selection would remove every super administrator. At least one must always remain.',
+        'last_super_admin_edit' => 'This is the last super administrator, so the super administrator role can’t be removed — at least one must always remain. It has been kept.',
+    ],
 ];

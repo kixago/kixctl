@@ -42,4 +42,33 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->hasAnyRole(['super_admin', 'operator']);
     }
+
+    /**
+     * The one governance invariant: at least one super_admin must always exist.
+     * True only when this user holds super_admin AND no other user does — i.e.
+     * removing or demoting this user would orphan the panel. Deliberately a live
+     * count, not a cached flag, so it can't drift.
+     */
+    public function isLastSuperAdmin(): bool
+    {
+        if (! $this->hasRole('super_admin')) {
+            return false;
+        }
+
+        return static::role('super_admin')->whereKeyNot($this->getKey())->doesntExist();
+    }
+
+    /**
+     * Hard backstop for the invariant on every delete path — Filament single and
+     * bulk actions guard it first with a friendly notice, but this catches tinker,
+     * seeders, and anything else, so the last super_admin can never be deleted.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (self $user): void {
+            if ($user->isLastSuperAdmin()) {
+                throw new \RuntimeException(__('users.guard.last_super_admin_delete'));
+            }
+        });
+    }
 }

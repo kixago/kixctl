@@ -2,11 +2,14 @@
 
 namespace App\Filament\Resources\Users\Tables;
 
+use App\Models\User;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 
 class UsersTable
 {
@@ -40,7 +43,25 @@ class UsersTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Rail 2 (bulk): refuse a selection that would leave zero
+                    // super_admins. Checked before any row is deleted, so it's an
+                    // all-or-nothing stop, not a partial wipe.
+                    DeleteBulkAction::make()
+                        ->before(function (Collection $records, DeleteBulkAction $action): void {
+                            $remaining = User::role('super_admin')
+                                ->whereNotIn('id', $records->modelKeys())
+                                ->count();
+
+                            if ($remaining === 0) {
+                                Notification::make()
+                                    ->danger()
+                                    ->title(__('users.guard.last_super_admin_title'))
+                                    ->body(__('users.guard.last_super_admin_bulk'))
+                                    ->send();
+
+                                $action->cancel();
+                            }
+                        }),
                 ]),
             ]);
     }
