@@ -30,4 +30,18 @@ return [
         'deleted' => 'Pool removed.',
     ],
 
+    // Update all: one action promotes every member of a pool that has a revision
+    // ready, reusing the per-app cutover. Results are reported per member — a
+    // partial batch is a valid state, never a single pass/fail.
+    'promote' => [
+        'pool_gone' => 'That pool no longer exists.',
+        'member_failed' => ':app could not be promoted: :reason',
+        'summary_title' => 'Updated pool “:pool”',
+        'summary_title_failed' => 'Pool “:pool” updated with failures',
+        'summary_none' => 'Nothing to promote — every app in this pool is already current.',
+        'summary' => 'Promoted :promoted of :total.',
+        'summary_skipped' => ':count already current.',
+        'summary_failed' => 'Failed — :list.',
+    ],
+
 ];
