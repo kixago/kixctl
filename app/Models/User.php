@@ -59,16 +59,23 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
-     * Hard backstop for the invariant on every delete path — Filament single and
-     * bulk actions guard it first with a friendly notice, but this catches tinker,
-     * seeders, and anything else, so the last super_admin can never be deleted.
+     * Hard backstop for the invariant, at the correct layer: refuse the delete
+     * BEFORE it begins. This ordering is the whole point — Spatie's own deleting
+     * hook detaches a model's roles the instant a delete starts, so a guard that
+     * runs *during* the deleting event only fires after the roles are already gone,
+     * and outside a surrounding transaction (a bare tinker delete) that detach
+     * commits even when the row deletion is aborted. Throwing here, before
+     * parent::delete(), means no delete machinery — Spatie's included — ever runs
+     * for the last super_admin, so nothing is stripped. Filament's single and bulk
+     * actions still guard this first with a friendly notice; this catches tinker,
+     * seeders, and every other path.
      */
-    protected static function booted(): void
+    public function delete(): ?bool
     {
-        static::deleting(function (self $user): void {
-            if ($user->isLastSuperAdmin()) {
-                throw new \RuntimeException(__('users.guard.last_super_admin_delete'));
-            }
-        });
+        if ($this->isLastSuperAdmin()) {
+            throw new \RuntimeException(__('users.guard.last_super_admin_delete'));
+        }
+
+        return parent::delete();
     }
 }
