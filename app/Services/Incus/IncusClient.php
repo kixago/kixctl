@@ -154,6 +154,9 @@ class IncusClient
                 'ipv4' => $this->primaryIpv4($i['state'] ?? null),
                 'profiles' => $i['profiles'] ?? [],
                 'last_used_at' => $i['last_used_at'] ?? null,
+                // The retirement marker (blank/absent = live-or-current). recursion=2
+                // already returns config, so this is free — no per-instance fetch.
+                'retired_at' => $i['config']['user.kixctl.retired_at'] ?? null,
             ])
             ->sortBy('node')
             ->values()
@@ -367,7 +370,18 @@ class IncusClient
 
         $result = $wait->json('metadata', []);
         if (($result['status'] ?? '') === 'Failure') {
-            throw new \RuntimeException($result['err'] ?? 'Image import failed');
+            // Idempotent on CONTENT, not just alias. A byte-identical rebuild —
+            // a README/comment-only commit, or a revert to a prior tree — hashes
+            // to a fingerprint Incus already holds under an earlier revision's
+            // alias, so the import op fails "same fingerprint already exists".
+            // The artifact is already in the store: that is a success, not a
+            // failure. Incus still reports the fingerprint in the failed op's
+            // metadata, so fall through to tag the new <repo>-<sha> alias onto it
+            // (a distinct instance sharing the underlying image) instead of
+            // erroring the deploy. Any other failure is real and still throws.
+            if (! str_contains((string) ($result['err'] ?? ''), 'same fingerprint already exists')) {
+                throw new \RuntimeException($result['err'] ?? 'Image import failed');
+            }
         }
 
         $fingerprint = $result['metadata']['fingerprint'] ?? null;

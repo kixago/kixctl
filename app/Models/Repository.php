@@ -29,7 +29,7 @@ class Repository extends Model
         'full_name', 'slug', 'host', 'clone_url', 'default_branch',
         'build_attr', 'webhook_secret', 'poll_enabled', 'poll_interval',
         'last_seen_sha', 'last_polled_at', 'last_poll_error', 'is_active',
-        'pool_id',
+        'pool_id', 'force_rebuild',
     ];
 
     protected function casts(): array
@@ -39,6 +39,7 @@ class Repository extends Model
             'poll_enabled' => 'boolean',
             'poll_interval' => 'integer',
             'is_active' => 'boolean',
+            'force_rebuild' => 'boolean',
             'last_polled_at' => 'datetime',
         ];
     }

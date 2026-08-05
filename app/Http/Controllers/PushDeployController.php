@@ -97,6 +97,7 @@ class PushDeployController extends Controller
             commit: $commit,
             buildAttr: $repo->buildAttr(),
             slug: $repo->slug,
+            forceRebuild: $repo->force_rebuild,
         );
 
         return response()->json(['message' => 'Deploy queued.'], 202);

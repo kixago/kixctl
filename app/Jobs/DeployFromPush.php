@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Events\DeployProgress;
+use App\Models\AppRoute;
 use App\Models\DeployAppConfig;
 use App\Services\Deploy\DeploymentManager;
 use App\Services\Incus\ClusterRegistry;
@@ -57,6 +58,7 @@ class DeployFromPush implements ShouldQueue
         public string $commit,
         public string $buildAttr = '',
         public string $slug = '',
+        public bool $forceRebuild = false,
     ) {
         $this->onQueue('incus');
     }
@@ -174,6 +176,37 @@ class DeployFromPush implements ShouldQueue
             $this->announce('failed', __('updates.deploy.import_failed', ['app' => $this->appKey(), 'sha' => $short]));
 
             return;
+        }
+
+        // ── Content-level no-op: skip an identical rebuild ───────────────────
+        // The commit SHA always differs, but a docs/comment-only change — or a
+        // revert to the live tree — builds a byte-identical image whose
+        // fingerprint the live revision already runs. There is nothing to
+        // deploy: the running box already IS this artifact. Announce it and
+        // stop, rather than launching an identical twin and raising a spurious
+        // "update ready". A commit that changes the build graph yields a
+        // different fingerprint and falls through to launch + land as normal.
+        // force_rebuild (per repo, off by default) opts back into a distinct
+        // revision for every push regardless of content. Read straight from the
+        // live instance's volatile.base_image — the fingerprint Incus recorded
+        // when it created it — so there is no kixctl-side ledger to drift.
+        if (! $this->forceRebuild) {
+            $live = optional(AppRoute::query()->where('app', $this->appKey())->first())->live_instance;
+
+            if ($live && $live !== $name
+                && $incus->instanceExists($cluster, $live)
+                && ($incus->instance($cluster, $live)['config']['volatile.base_image'] ?? '') === $fingerprint
+            ) {
+                Log::info('deploy.unchanged', [
+                    'repository' => $this->repository,
+                    'commit' => $this->commit,
+                    'live' => $live,
+                    'fingerprint' => $fingerprint,
+                ]);
+                $this->announce('unchanged', __('updates.deploy.unchanged', ['app' => $this->appKey(), 'sha' => $short]));
+
+                return;
+            }
         }
 
         // ── Launch the immutable revision on the target member ───────────────

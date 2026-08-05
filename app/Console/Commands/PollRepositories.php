@@ -149,6 +149,7 @@ class PollRepositories extends Command
             commit: $sha,
             buildAttr: $repo->buildAttr(),
             slug: $repo->slug,
+            forceRebuild: $repo->force_rebuild,
         );
 
         Log::info('poll.dispatched', ['repo' => $repo->full_name, 'commit' => $sha, 'slug' => $repo->slug]);

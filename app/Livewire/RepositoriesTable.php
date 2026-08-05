@@ -149,6 +149,7 @@ class RepositoriesTable extends Component implements HasActions, HasSchemas, Has
                         'webhook_secret' => $record->webhook_secret,
                         'poll_enabled' => (bool) $record->poll_enabled,
                         'poll_interval' => (int) $record->poll_interval,
+                        'force_rebuild' => (bool) $record->force_rebuild,
                         'is_active' => (bool) $record->is_active,
                     ])
                     ->schema($this->formSchema(editing: true))
@@ -240,6 +241,10 @@ class RepositoriesTable extends Component implements HasActions, HasSchemas, Has
                 ->minValue(10)
                 ->default(60)
                 ->helperText(__('repositories.form.poll_interval_help')),
+            Toggle::make('force_rebuild')
+                ->label(__('repositories.form.force_rebuild'))
+                ->default(false)
+                ->helperText(__('repositories.form.force_rebuild_help')),
             Toggle::make('is_active')
                 ->label(__('repositories.form.is_active'))
                 ->default(true)

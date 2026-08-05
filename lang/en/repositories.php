@@ -47,6 +47,8 @@ return [
         'poll_enabled_help' => 'Check the repository on a schedule and deploy a new commit even without a webhook.',
         'poll_interval' => 'Poll interval (seconds)',
         'poll_interval_help' => 'The minimum time between polls for this repository.',
+        'force_rebuild' => 'Always rebuild every commit',
+        'force_rebuild_help' => 'Off (default): a commit that builds a byte-identical image — a docs or comment-only change, or a revert to the live tree — is a no-op, since the running revision already is that artifact. On: create a new revision for every push, even when nothing about the built image changed.',
         'is_active' => 'Active',
         'is_active_help' => 'When off, kixctl neither polls this repository nor accepts its webhook. Its registration and configuration are kept.',
     ],

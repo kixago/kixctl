@@ -71,6 +71,7 @@ return [
         'no_ip' => ':app :sha came up but took no address.',
         'published' => ':app :sha is live',
         'landed' => ':app :sha landed — ready to promote',
+        'unchanged' => ':app :sha unchanged — already deployed, no update needed',
         'route_failed' => ':app :sha deployed but routing failed — re-publish from the panel.',
 
         // Client-side fallbacks for the live banner, used only if a broadcast

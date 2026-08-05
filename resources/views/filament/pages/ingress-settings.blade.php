@@ -317,7 +317,7 @@
                     if (window.Echo) window.Echo.leaveChannel('deploys');
                 },
                 onProgress(e) {
-                    const terminal = ['landed', 'published', 'failed'].includes(e.phase);
+                    const terminal = ['landed', 'published', 'unchanged', 'failed'].includes(e.phase);
                     const row = {
                         instance: e.instance,
                         app: e.app,

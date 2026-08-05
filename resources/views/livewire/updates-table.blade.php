@@ -51,15 +51,17 @@
                 style="display:flex; align-items:center; gap:.6rem; margin-bottom:.5rem; padding:.6rem .75rem; border-radius:.5rem;"
                 :style="d.phase === 'failed'
                     ? 'background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.25);'
-                    : (d.terminal
-                        ? 'background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.25);'
-                        : 'background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.22);')"
+                    : (d.phase === 'unchanged'
+                        ? 'background:rgba(148,163,184,.1); border:1px solid rgba(148,163,184,.25);'
+                        : (d.terminal
+                            ? 'background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.25);'
+                            : 'background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.22);'))"
             >
                 <span
                     x-show="!d.terminal"
                     style="width:.7rem;height:.7rem;border-radius:9999px;border:2px solid #6b7280;border-top-color:#e5e7eb;display:inline-block;animation:dwspin .8s linear infinite;flex-shrink:0;"
                 ></span>
-                <span x-show="d.terminal" x-cloak :style="d.phase === 'failed' ? 'color:#ef4444' : 'color:#22c55e'">●</span>
+                <span x-show="d.terminal" x-cloak :style="d.phase === 'failed' ? 'color:#ef4444' : (d.phase === 'unchanged' ? 'color:#94a3b8' : 'color:#22c55e')">●</span>
                 <span style="font-size:.85rem;" x-text="d.message"></span>
             </div>
         </template>
