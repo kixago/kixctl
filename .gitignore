@@ -28,3 +28,6 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 /storage/backups/
+
+# direnv / nix-direnv local cache — never commit
+.direnv/
