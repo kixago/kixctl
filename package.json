@@ -8,6 +8,7 @@
         "dev": "vite"
     },
     "devDependencies": {
+        "@fontsource/instrument-sans": "^5.3.0",
         "@tailwindcss/vite": "^4.0.0",
         "blade-formatter": "^1.44.4",
         "concurrently": "^9.0.1",
