@@ -31,3 +31,4 @@ Thumbs.db
 
 # direnv / nix-direnv local cache — never commit
 .direnv/
+result
