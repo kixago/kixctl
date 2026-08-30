@@ -43,6 +43,15 @@
         };
     in
     {
+      # The reusable service module — runs kixctl on any NixOS host.
+      nixosModules.kixctl = import ./nix/kixctl-module.nix;
+
+      # The appliance system, for `nixos-rebuild build-vm --flake .#appliance`.
+      nixosConfigurations.appliance = import ./nix/appliance.nix {
+        inherit self nixpkgs;
+        system = "x86_64-linux";
+      };
+
       packages = forAllSystems (
         pkgs:
         let
@@ -66,7 +75,7 @@
             # post-autoload-dump (package:discover / filament:upgrade) does NOT run
             # during vendoring — those are runtime / first-boot concerns.
             composerStrictValidation = false;
-            vendorHash = "sha256-sq1wcQao9zRCPqNgr8EVDOb3Pgl0dDyJDA4dAF/Su7s=";
+            vendorHash = nixpkgs.lib.fakeHash; # ← replace on the first build (step 3)
 
             nativeBuildInputs = [
               pkgs.nodejs_22
@@ -76,7 +85,7 @@
             npmDeps = pkgs.fetchNpmDeps {
               inherit (finalAttrs) src;
               name = "${finalAttrs.pname}-npm-deps";
-              hash = "sha256-tSAGkG+IkgalEHptQvJkXwFRBs6GZhWFxpm/uL2V9zI=";
+              hash = nixpkgs.lib.fakeHash; # ← replace on the second build (step 3)
             };
 
             # Build the Vite assets while node_modules is present and before the
