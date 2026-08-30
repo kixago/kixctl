@@ -32,3 +32,6 @@ Thumbs.db
 # direnv / nix-direnv local cache — never commit
 .direnv/
 result
+nixos.qcow2
+*.qcow2
+.direnv
