@@ -63,6 +63,13 @@ let
     set -euo pipefail
     umask 077
 
+    # Clear generated caches from any previous build first. Laravel's cached
+    # config bakes absolute /nix/store paths, so a stale cache left by an older
+    # build poisons the framework boot before any artisan command can run. That
+    # rules out `artisan optimize:clear` (it can't boot through a poisoned cache
+    # itself), so the clear must happen at the filesystem level.
+    rm -rf "${cfg.stateDir}/cache"/* "${cfg.stateDir}/storage/framework/views"/* 2>/dev/null || true
+
     # APP_KEY is a runtime secret — generated once into the state dir, never
     # written to the Nix store. base64 of 32 random bytes is exactly Laravel's
     # AES-256 key format.
