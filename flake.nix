@@ -75,7 +75,7 @@
             # post-autoload-dump (package:discover / filament:upgrade) does NOT run
             # during vendoring — those are runtime / first-boot concerns.
             composerStrictValidation = false;
-            vendorHash = nixpkgs.lib.fakeHash; # ← replace on the first build (step 3)
+            vendorHash = "sha256-sq1wcQao9zRCPqNgr8EVDOb3Pgl0dDyJDA4dAF/Su7s=";
 
             nativeBuildInputs = [
               pkgs.nodejs_22
@@ -85,7 +85,7 @@
             npmDeps = pkgs.fetchNpmDeps {
               inherit (finalAttrs) src;
               name = "${finalAttrs.pname}-npm-deps";
-              hash = nixpkgs.lib.fakeHash; # ← replace on the second build (step 3)
+              hash = "sha256-tSAGkG+IkgalEHptQvJkXwFRBs6GZhWFxpm/uL2V9zI=";
             };
 
             # Build the Vite assets while node_modules is present and before the

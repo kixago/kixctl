@@ -27,30 +27,35 @@ nixpkgs.lib.nixosSystem {
           };
         };
 
-        # --- build-vm proof plumbing (throwaway) ---
-        users.users.root.initialPassword = "root";
-
-        virtualisation = {
-          memorySize = 2048;
-          diskSize = 6144;
-          forwardPorts = [
-            {
-              from = "host";
-              host.port = 8443;
-              guest.port = 443;
-            }
-            {
-              from = "host";
-              host.port = 2222;
-              guest.port = 22;
-            }
-          ];
-        };
-
-        services.openssh.enable = true;
-        networking.firewall.enable = false;
-
         system.stateVersion = "25.11";
+
+        # Everything below applies ONLY when built with `nixos-rebuild build-vm`
+        # (the vmVariant sub-evaluation, where qemu-vm's options are in scope).
+        # It keeps the throwaway VM plumbing — root password, port forwards,
+        # firewall-off — out of the real appliance config entirely.
+        virtualisation.vmVariant = {
+          virtualisation = {
+            memorySize = 2048;
+            diskSize = 6144;
+            cores = 2;
+            graphics = false;
+            forwardPorts = [
+              {
+                from = "host";
+                host.port = 18443;
+                guest.port = 443;
+              }
+              {
+                from = "host";
+                host.port = 12222;
+                guest.port = 22;
+              }
+            ];
+          };
+          users.users.root.initialPassword = "root";
+          services.openssh.enable = true;
+          networking.firewall.enable = false;
+        };
       }
     )
   ];

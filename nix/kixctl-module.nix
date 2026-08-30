@@ -92,9 +92,8 @@ let
     '
 
     # Cache the env-dependent config now that secrets + DB are present.
-    # route:cache is intentionally omitted: routes/web.php has a closure route
-    # ('/'), which route:cache rejects. Re-enable once that route is a controller.
     ${artisan} config:cache
+    ${artisan} route:cache
     ${artisan} event:cache
     ${artisan} view:cache
     ${artisan} filament:optimize
@@ -174,21 +173,29 @@ in
     };
     users.groups.${cfg.group} = { };
 
-    # State dirs the read-only store symlinks (storage, bootstrap/cache) resolve to.
-    systemd.tmpfiles.settings."10-kixctl" = {
-      "${cfg.stateDir}".d = {
-        inherit (cfg) user group;
-        mode = "0750";
-      };
-      "${cfg.stateDir}/storage".d = {
-        inherit (cfg) user group;
-        mode = "0750";
-      };
-      "${cfg.stateDir}/cache".d = {
-        inherit (cfg) user group;
-        mode = "0750";
-      };
-    };
+    # State dirs the read-only store symlinks (storage, bootstrap/cache) resolve
+    # to. Laravel needs the full storage/framework/{cache,sessions,views},
+    # storage/logs and storage/app/public subtree to exist, or Blade refuses to
+    # boot ("Please provide a valid cache path"), so create the whole skeleton.
+    systemd.tmpfiles.settings."10-kixctl" =
+      let
+        dir.d = {
+          inherit (cfg) user group;
+          mode = "0750";
+        };
+      in
+      lib.genAttrs [
+        "${cfg.stateDir}"
+        "${cfg.stateDir}/cache"
+        "${cfg.stateDir}/storage"
+        "${cfg.stateDir}/storage/app"
+        "${cfg.stateDir}/storage/app/public"
+        "${cfg.stateDir}/storage/framework"
+        "${cfg.stateDir}/storage/framework/cache"
+        "${cfg.stateDir}/storage/framework/sessions"
+        "${cfg.stateDir}/storage/framework/views"
+        "${cfg.stateDir}/storage/logs"
+      ] (_: dir);
 
     # The appliance owns its data layer.
     services.postgresql = {
@@ -203,11 +210,16 @@ in
       ];
     };
 
-    services.redis.servers.kixctl = {
-      enable = true;
+    # Valkey via the redis module: `package` is a top-level option shared by all
+    # servers (there is no per-server `package`). Valkey's serverBin passthru
+    # makes the unit run valkey-server rather than redis-server.
+    services.redis = {
       package = pkgs.valkey;
-      port = 6379;
-      bind = "127.0.0.1";
+      servers.kixctl = {
+        enable = true;
+        port = 6379;
+        bind = "127.0.0.1";
+      };
     };
 
     # php-fpm pool serving public/index.php. clear_env=no so the systemd
@@ -243,11 +255,11 @@ in
     systemd.services.kixctl-setup = {
       description = "kixctl first-boot / activation setup (migrate, seed, cache)";
       after = [
-        "postgresql.service"
+        "postgresql.target"
         "redis-kixctl.service"
       ];
-      requires = [
-        "postgresql.service"
+      wants = [
+        "postgresql.target"
         "redis-kixctl.service"
       ];
       requiredBy = [ "phpfpm-kixctl.service" ];
