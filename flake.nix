@@ -7,14 +7,16 @@
   };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+    }:
     let
       systems = [
         "x86_64-linux"
         "aarch64-linux"
       ];
-      forAllSystems =
-        f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
 
       # php84 + phpredis, shared by the dev shell AND the app derivation — so the
       # toolchain that BUILDS kixctl is the same one the dev loop and the appliance
@@ -47,9 +49,14 @@
       nixosModules.kixctl = import ./nix/kixctl-module.nix;
 
       # The appliance system, for `nixos-rebuild build-vm --flake .#appliance`.
-      nixosConfigurations.appliance = import ./nix/appliance.nix {
-        inherit self nixpkgs;
+      # appliance.nix now returns the shared module list; both this and the
+      # appliance-qcow image below build from the same definition.
+      nixosConfigurations.appliance = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
+        modules = import ./nix/appliance.nix {
+          inherit self;
+          system = "x86_64-linux";
+        };
       };
 
       packages = forAllSystems (
@@ -92,6 +99,11 @@
             # install hook copies the tree into $out. Fonts resolve from
             # @fontsource (node_modules), so this needs no network.
             preInstall = ''
+              # Bake the (public, non-secret) Reverb app key into the browser
+              # bundle so Echo can connect. Host/port/scheme stay unset — the
+              # bundle falls back to the page origin at runtime. MUST match
+              # REVERB_APP_KEY / reverbAppKey in nix/kixctl-module.nix.
+              export VITE_REVERB_APP_KEY=kixctl-appliance-key
               npm run build
             '';
 
@@ -125,7 +137,52 @@
             };
           });
 
-          default = self.packages.${pkgs.system}.kixctl;
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.kixctl;
+        }
+        // nixpkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+          # The distributable appliance as a qcow2, built by the native nixpkgs
+          # image framework (the `qemu` variant = BIOS qcow2; `qemu-efi` is the
+          # UEFI one). Boots directly in qemu / virt-manager / GNOME Boxes and
+          # converts to VDI/VMDK/VHDX with one qemu-img command. The dev-only
+          # login is scoped to this image via image.modules.qemu in
+          # appliance.nix, so it never rides along in another variant.
+          appliance-qcow =
+            (nixpkgs.lib.nixosSystem {
+              system = "x86_64-linux";
+              modules =
+                (import ./nix/appliance.nix {
+                  inherit self;
+                  system = "x86_64-linux";
+                })
+                ++ [
+                  (
+                    { lib, modulesPath, ... }:
+                    {
+                      # systemd-boot in the BASE config, so the qemu-efi variant
+                      # lays down a real ESP (image.modules is too late to affect
+                      # the partition table). Dev-only login + serial console for
+                      # the test image. nixosConfigurations.appliance stays
+                      # bootloader-free, so build-vm still direct-boots the kernel.
+                      imports = [ "${modulesPath}/profiles/qemu-guest.nix" ];
+                      boot = {
+                        loader = {
+                          systemd-boot.enable = true;
+                          efi.canTouchEfiVariables = false;
+                          grub.enable = lib.mkForce false;
+                          timeout = lib.mkDefault 3;
+                        };
+                      };
+                      users.users.root.initialPassword = "root";
+                      services.openssh.enable = true;
+                      services.openssh.settings.PermitRootLogin = "yes";
+                      boot.kernelParams = [
+                        "console=ttyS0,115200"
+                        "console=tty0"
+                      ];
+                    }
+                  )
+                ];
+            }).config.system.build.images.qemu-efi;
         }
       );
 
