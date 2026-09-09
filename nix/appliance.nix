@@ -37,15 +37,20 @@
       virtualisation.incus = {
         enable = true;
         preseed = {
-          # `dir` has no external dependency (no ZFS/btrfs dataset), the right
-          # default for a self-contained box. State lives under /var/lib/incus,
-          # which is ordinary mutable state and survives immutable rebuilds.
-          # No network or profile is seeded here — those are kixctl's to own.
+          # Loop-backed btrfs pool (no dedicated device): Incus creates a big
+          # file under /var/lib/incus and mkfs.btrfs's it, so the pool is real
+          # btrfs — CoW clones and snapshots — even though the root is ext4. No
+          # `source`, so it's a loop file; explicit size because the adaptive
+          # default caps at 30GiB, which is wrong for a storage box. GA revisits
+          # sizing (dedicated btrfs partition vs. a larger loop). kixctl still
+          # creates kixbr0/kix/CoreDNS itself; NixOS only lays down the pool.
           storage_pools = [
             {
               name = "kixpool";
-              driver = "dir";
-              config.source = "/var/lib/incus/storage-pools/kixpool";
+              driver = "btrfs";
+              config = {
+                size = "10GiB";
+              };
             }
           ];
         };
@@ -54,6 +59,11 @@
       # Incus on NixOS needs the nftables backend to coexist cleanly with any
       # other firewall management on the box.
       networking.nftables.enable = true;
+
+      # btrfs kernel module + userspace (mkfs.btrfs) so Incus can create and
+      # mount the loop-backed btrfs kixpool. Applies to build-vm and the image
+      # alike, since both stand up the pool.
+      boot.supportedFilesystems = [ "btrfs" ];
 
       # The workers that drive deploys run as the kixctl user; incus-admin
       # grants them unrestricted access to the local Incus API over the
@@ -71,7 +81,7 @@
       virtualisation.vmVariant = {
         virtualisation = {
           memorySize = 4096;
-          diskSize = 12288;
+          diskSize = 20480;
           cores = 4;
           graphics = false;
           forwardPorts = [

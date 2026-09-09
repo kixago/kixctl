@@ -140,12 +140,6 @@
           default = self.packages.${pkgs.stdenv.hostPlatform.system}.kixctl;
         }
         // nixpkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
-          # The distributable appliance as a qcow2, built by the native nixpkgs
-          # image framework (the `qemu` variant = BIOS qcow2; `qemu-efi` is the
-          # UEFI one). Boots directly in qemu / virt-manager / GNOME Boxes and
-          # converts to VDI/VMDK/VHDX with one qemu-img command. The dev-only
-          # login is scoped to this image via image.modules.qemu in
-          # appliance.nix, so it never rides along in another variant.
           appliance-qcow =
             (nixpkgs.lib.nixosSystem {
               system = "x86_64-linux";
@@ -165,6 +159,11 @@
                       # bootloader-free, so build-vm still direct-boots the kernel.
                       imports = [ "${modulesPath}/profiles/qemu-guest.nix" ];
                       boot = {
+                        kernelParams = [
+                          "console=ttyS0,115200"
+                          "console=tty0"
+                        ];
+                        growPartition = true;
                         loader = {
                           systemd-boot.enable = true;
                           efi.canTouchEfiVariables = false;
@@ -172,13 +171,10 @@
                           timeout = lib.mkDefault 3;
                         };
                       };
+                      fileSystems."/".autoResize = true;
                       users.users.root.initialPassword = "root";
                       services.openssh.enable = true;
                       services.openssh.settings.PermitRootLogin = "yes";
-                      boot.kernelParams = [
-                        "console=ttyS0,115200"
-                        "console=tty0"
-                      ];
                     }
                   )
                 ];
