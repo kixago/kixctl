@@ -70,7 +70,9 @@
       # socket (the `incus` group would scope them to a single project).
       users.users.${config.services.kixctl.user}.extraGroups = [ "incus-admin" ];
 
-      system.stateVersion = "25.11";
+      system.stateVersion = "26.11";
+      networking.hostName = "kixctl";
+      services.getty.greetingLine = ''kixctl appliance - \l'';
 
       # Applies ONLY under `nixos-rebuild build-vm` (the vmVariant sub-evaluation,
       # where qemu-vm's options are in scope). Keeps the throwaway VM plumbing —
