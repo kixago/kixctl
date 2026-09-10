@@ -1,9 +1,10 @@
 <?php
 
+use App\Livewire\SetupWizard;
 use Illuminate\Support\Facades\Route;
 
-// The control panel lives at /admin. Send the bare root there for now; root is
-// deliberately left reserved for a future pre-auth front door (first-run wizard,
-// CA-trust download, status landing). Route::redirect is a controller action,
-// not a closure, so route:cache stays valid.
-Route::redirect('/', '/admin');
+// The first-run wizard owns the bare root as a pre-auth front door. It gates on
+// InstanceSetting.configured_at: an unconfigured appliance renders the wizard, a
+// configured one redirects to /admin (handled in SetupWizard::mount). Mounting a
+// class-based Livewire component — not a closure — keeps route:cache valid.
+Route::get('/', SetupWizard::class)->name('setup');
