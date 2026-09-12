@@ -2,12 +2,17 @@
 
 namespace App\Filament\Resources\Clusters\Tables;
 
+use App\Models\Cluster;
+use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Notifications\Notification;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 
 class ClustersTable
 {
@@ -34,7 +39,19 @@ class ClustersTable
                     ->toggleable(),
                 IconColumn::make('is_active')
                     ->label(__('clusters.table.active'))
-                    ->boolean(),
+                    ->boolean()
+                    // Click to toggle whether this cluster shows on the dashboard.
+                    // The dashboard aggregates every active cluster, so any number
+                    // may be on — this is an independent on/off, not a radio pick.
+                    ->tooltip(fn (Cluster $record): string => $record->is_active ? 'Deactivate' : 'Activate')
+                    ->action(function (Cluster $record): void {
+                        $record->update(['is_active' => ! $record->is_active]);
+
+                        Notification::make()
+                            ->title(($record->is_active ? 'Activated ' : 'Deactivated ').$record->label)
+                            ->success()
+                            ->send();
+                    }),
                 IconColumn::make('verify')
                     ->label(__('clusters.table.tls_verify'))
                     ->boolean()
@@ -57,6 +74,18 @@ class ClustersTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('activate')
+                        ->label('Activate')
+                        ->icon(Heroicon::OutlinedCheckCircle)
+                        ->color('success')
+                        ->action(fn (Collection $records) => Cluster::query()->whereKey($records->modelKeys())->update(['is_active' => true]))
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('deactivate')
+                        ->label('Deactivate')
+                        ->icon(Heroicon::OutlinedXCircle)
+                        ->color('gray')
+                        ->action(fn (Collection $records) => Cluster::query()->whereKey($records->modelKeys())->update(['is_active' => false]))
+                        ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make(),
                 ]),
             ]);

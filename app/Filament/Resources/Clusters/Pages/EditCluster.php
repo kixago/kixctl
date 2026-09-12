@@ -10,6 +10,8 @@ class EditCluster extends EditRecord
 {
     protected static string $resource = ClusterResource::class;
 
+    public bool $hasScopeIssues = false;
+
     protected function getHeaderActions(): array
     {
         return [
@@ -19,12 +21,20 @@ class EditCluster extends EditRecord
 
     protected function afterSave(): void
     {
-        ClusterResource::runScopeCheck($this->record);
+        // The dashboard aggregates every active cluster, so any number may be
+        // active — nothing to reconcile here beyond the scope probe. A scope
+        // issue keeps us on the page so the explanation stays visible.
+        $this->hasScopeIssues = ! ClusterResource::runScopeCheck($this->record);
     }
 
     protected function getRedirectUrl(): ?string
     {
-        // Null keeps them on the edit page so the persistent notification is visible
-        return null;
+        // A clean save returns to the list; a scope issue stays here so the
+        // persistent notification is seen (mirrors CreateCluster).
+        if ($this->hasScopeIssues) {
+            return null;
+        }
+
+        return $this->getResource()::getUrl('index');
     }
 }

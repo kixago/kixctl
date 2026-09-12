@@ -27,6 +27,22 @@ class Cluster extends Model
         ];
     }
 
+    /**
+     * Make this the single active cluster — the dashboard views exactly one at a
+     * time, so activating clears any other active row. Idempotent.
+     */
+    public function makeActive(): void
+    {
+        static::query()
+            ->where('is_active', true)
+            ->whereKeyNot($this->getKey())
+            ->update(['is_active' => false]);
+
+        if (! $this->is_active) {
+            $this->forceFill(['is_active' => true])->save();
+        }
+    }
+
     /** Map this stored row to the runtime value object the service layer uses. */
     public function toEndpoint(): ClusterEndpoint
     {
