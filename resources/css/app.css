@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 
+/* Self-hosted Instrument Sans, offline-safe via @fontsource in node_modules.
+   app.css referenced this family in --font-sans but never loaded it, so pages
+   outside the Filament panel (the setup wizard) fell back to a default font. */
+@import '@fontsource/instrument-sans/400.css';
+@import '@fontsource/instrument-sans/500.css';
+@import '@fontsource/instrument-sans/600.css';
+@import '@fontsource/instrument-sans/700.css';
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
